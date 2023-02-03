@@ -42,8 +42,7 @@ where
             }
             None => {
                 let block = self.data.len();
-                self.data
-                    .resize(block + size_class.total_size(), V::default());
+                self.data.resize(block + size_class.total_size(), V::new(0));
                 block
             }
         }
@@ -238,7 +237,7 @@ where
     /// assert_eq!(pool.slice(list), [1, 4, 2, 3, 5]);
     /// ```
     pub fn insert(&mut self, list: ListIndex<V>, index: usize, item: V) -> ListIndex<V> {
-        let list = self.push(list, V::default());
+        let list = self.push(list, V::new(0));
         let slice = self.slice_mut(list);
         slice.copy_within(index..slice.len() - 1, index + 1);
         slice[index] = item;
@@ -403,15 +402,24 @@ where
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ListIndex<V> {
     index: u32,
     phantom: PhantomData<V>,
 }
 
+impl<V> Default for ListIndex<V> {
+    fn default() -> Self {
+        Self {
+            index: 0,
+            phantom: Default::default(),
+        }
+    }
+}
+
 impl<V> EntityIndex for ListIndex<V>
 where
-    V: EntityIndex + Default,
+    V: EntityIndex,
 {
     fn try_new(index: usize) -> Option<Self> {
         if index <= u32::MAX as usize {
@@ -429,9 +437,17 @@ where
     }
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct EntityList<V> {
     index: ListIndex<V>,
+}
+
+impl<V> Default for EntityList<V> {
+    fn default() -> Self {
+        Self {
+            index: Default::default(),
+        }
+    }
 }
 
 impl<V> EntityList<V>

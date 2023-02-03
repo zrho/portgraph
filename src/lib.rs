@@ -6,26 +6,13 @@
 
 pub mod memory;
 pub mod undirected;
-
 pub use undirected::PortGraph;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
-pub struct NodeIndex(u32);
-
-entity_impl!(NodeIndex, u32, true);
-reserved_impl!(NodeIndex, u32);
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
-pub struct PortIndex(u32);
-
-entity_impl!(PortIndex, u32, true);
-reserved_impl!(PortIndex, u32);
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
-pub struct EdgeIndex(u32);
-
-entity_impl!(EdgeIndex, u32, true);
-reserved_impl!(EdgeIndex, u32);
+make_entity! {
+    pub struct NodeIndex(u32);
+    pub struct PortIndex(u32);
+    pub struct EdgeIndex(u32);
+}
 
 // #[cfg(feature = "pyo3")]
 // pub mod py_graph;

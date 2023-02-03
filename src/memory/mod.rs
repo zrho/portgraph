@@ -8,7 +8,7 @@ pub mod slab;
 pub use list::ListPool;
 pub use slab::Slab;
 
-pub trait EntityIndex: Copy + Eq + Default {
+pub trait EntityIndex: Copy + Eq {
     fn new(index: usize) -> Self {
         Self::try_new(index).unwrap()
     }
@@ -17,53 +17,32 @@ pub trait EntityIndex: Copy + Eq + Default {
     fn index(self) -> usize;
 }
 
-pub trait Reserved {
-    fn reserved() -> Self;
-    fn is_reserved(&self) -> bool;
-}
-
-/// Macro which provides the common implementation of an n-bit entity reference
-///
-/// Based on [`cranelift_entity`'s `entity_impl!`](https://docs.rs/cranelift-entity/0.89.2/cranelift_entity/macro.entity_impl.html)
 #[macro_export]
-macro_rules! entity_impl {
-    ($entity:ident, $backing:ty, $reserved_max:expr) => {
-        impl $crate::memory::EntityIndex for $entity {
-            #[inline(always)]
-            fn try_new(ix: usize) -> Option<Self> {
-                if ($reserved_max && ix < (<$backing>::MAX as usize))
-                    || (!$reserved_max && ix <= (<$backing>::MAX as usize))
-                    || (<$backing>::BITS) > usize::BITS
-                {
-                    Some($entity(ix as $backing))
+macro_rules! make_entity {
+    ($($(#[$attr:meta])* $vis:vis struct $name:ident(u32);)*) => { $(
+        #[repr(transparent)]
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+        $(#[$attr:meta])*
+        $vis struct $name(::std::num::NonZeroU32);
+
+        impl $crate::memory::EntityIndex for $name {
+            fn try_new(index: usize) -> Option<Self> {
+                if index < u32::MAX as usize {
+                    let index = index.wrapping_add(1) as u32;
+                    Some(Self(unsafe {
+                        ::std::num::NonZeroU32::new_unchecked(index)
+                    }))
                 } else {
                     None
                 }
             }
 
-            #[inline(always)]
             fn index(self) -> usize {
-                self.0 as usize
+                u32::from(self.0).wrapping_sub(1) as usize
             }
         }
-    };
-}
 
-#[macro_export]
-macro_rules! reserved_impl {
-    ($entity:ident, $backing:ty) => {
-        impl $crate::memory::Reserved for $entity {
-            #[inline(always)]
-            fn reserved() -> Self {
-                Self(<$backing>::MAX)
-            }
-
-            #[inline(always)]
-            fn is_reserved(&self) -> bool {
-                self.0 == <$backing>::MAX
-            }
-        }
-    };
+    )*};
 }
 
 macro_rules! int_entity_impl {

@@ -1,6 +1,6 @@
 //! An undirected portgraph with hyperedges.
 use crate::memory::EntityIndex;
-use crate::memory::{list::EntityList, ListPool, Reserved, Slab};
+use crate::memory::{list::EntityList, ListPool, Slab};
 use crate::{EdgeIndex, NodeIndex, PortIndex};
 
 /// An undirected portgraph with hyperedges.
@@ -106,7 +106,7 @@ impl<N, E, P> PortGraph<N, E, P> {
         let port_index = self.ports.insert(Port {
             weight,
             node,
-            edge: EdgeIndex::reserved(),
+            edge: None,
         });
 
         self.nodes[node]
@@ -137,7 +137,7 @@ impl<N, E, P> PortGraph<N, E, P> {
         let port = self.ports.insert(Port {
             weight,
             node,
-            edge: EdgeIndex::reserved(),
+            edge: None,
         });
 
         self.nodes[node]
@@ -177,7 +177,7 @@ impl<N, E, P> PortGraph<N, E, P> {
         let indices = self.ports.extend(weights.into_iter().map(|weight| Port {
             weight,
             node,
-            edge: EdgeIndex::reserved(),
+            edge: None,
         }));
 
         let num_ports_before = self.nodes[node].ports.len(&self.port_lists);
@@ -208,8 +208,8 @@ impl<N, E, P> PortGraph<N, E, P> {
 
         self.nodes[port_data.node].remove_port(port, &mut self.port_lists);
 
-        if let Some(edge) = self.edges.get_mut(port_data.edge) {
-            edge.swap_remove_port(port, &mut self.port_lists);
+        if let Some(edge) = port_data.edge {
+            self.edges[edge].swap_remove_port(port, &mut self.port_lists);
         }
 
         Some(port_data.weight)
@@ -239,8 +239,8 @@ impl<N, E, P> PortGraph<N, E, P> {
 
         self.nodes[port_data.node].swap_remove_port(port, &mut self.port_lists);
 
-        if let Some(edge) = self.edges.get_mut(port_data.edge) {
-            edge.swap_remove_port(port, &mut self.port_lists);
+        if let Some(edge) = port_data.edge {
+            self.edges[edge].swap_remove_port(port, &mut self.port_lists);
         }
 
         Some(port_data.weight)
@@ -277,8 +277,8 @@ impl<N, E, P> PortGraph<N, E, P> {
             let port_index = node_data.ports.slice(&self.port_lists)[i];
             let port = self.ports.remove(port_index).unwrap();
 
-            if let Some(edge) = self.edges.get_mut(port.edge) {
-                edge.swap_remove_port(port_index, &mut self.port_lists);
+            if let Some(edge) = port.edge {
+                self.edges[edge].swap_remove_port(port_index, &mut self.port_lists);
             }
         }
 
@@ -307,7 +307,7 @@ impl<N, E, P> PortGraph<N, E, P> {
         let mut edge_data = self.edges.remove(edge)?;
 
         for port_index in edge_data.ports.slice(&self.port_lists) {
-            self.ports[*port_index].edge = EdgeIndex::reserved();
+            self.ports[*port_index].edge = None;
         }
 
         edge_data.ports.clear(&mut self.port_lists);
@@ -350,13 +350,7 @@ impl<N, E, P> PortGraph<N, E, P> {
     ///
     /// Panics if the port does not exist.
     pub fn port_edge(&self, port: PortIndex) -> Option<EdgeIndex> {
-        let edge = self.ports[port].edge;
-
-        if edge.is_reserved() {
-            None
-        } else {
-            Some(edge)
-        }
+        self.ports[port].edge
     }
 
     /// Connect a port to an edge.
@@ -368,16 +362,16 @@ impl<N, E, P> PortGraph<N, E, P> {
     ///
     /// Panics if the edge or the port do not exist.
     pub fn connect(&mut self, port: PortIndex, edge: EdgeIndex) {
-        let prev_edge = std::mem::replace(&mut self.ports[port].edge, edge);
+        let prev_edge = std::mem::replace(&mut self.ports[port].edge, Some(edge));
 
-        if prev_edge == edge {
+        if prev_edge == Some(edge) {
             return;
         }
 
         self.edges[edge].ports.push(port, &mut self.port_lists);
 
-        if let Some(edge_data) = self.edges.get_mut(prev_edge) {
-            edge_data.swap_remove_port(port, &mut self.port_lists);
+        if let Some(prev_edge) = prev_edge {
+            self.edges[prev_edge].swap_remove_port(port, &mut self.port_lists);
         }
     }
 
@@ -389,10 +383,8 @@ impl<N, E, P> PortGraph<N, E, P> {
     ///
     /// Panics if the port does not exist.
     pub fn disconnect(&mut self, port: PortIndex) {
-        let edge = std::mem::replace(&mut self.ports[port].edge, EdgeIndex::reserved());
-
-        if let Some(edge_data) = self.edges.get_mut(edge) {
-            edge_data.swap_remove_port(port, &mut self.port_lists);
+        if let Some(edge) = std::mem::take(&mut self.ports[port].edge) {
+            self.edges[edge].swap_remove_port(port, &mut self.port_lists);
         }
     }
 
@@ -523,7 +515,7 @@ impl<N, E, P> PortGraph<N, E, P> {
     {
         // TODO: Try to do this without allocation?
         let mut port_old_to_new = Vec::new();
-        port_old_to_new.resize(self.ports.upper_bound().index(), PortIndex::reserved());
+        port_old_to_new.resize(self.ports.upper_bound().index(), PortIndex::new(0));
 
         self.ports.compact(|port_data, port_old, port_new| {
             rekey_ports(&mut port_data.weight, port_old, port_new);
@@ -542,7 +534,7 @@ impl<N, E, P> PortGraph<N, E, P> {
             rekey_edges(&mut edge_data.weight, edge_old, edge_new);
             for port in edge_data.ports.slice_mut(&mut self.port_lists) {
                 *port = port_old_to_new[port.index()];
-                self.ports[*port].edge = edge_new;
+                self.ports[*port].edge = Some(edge_new);
             }
         });
 
@@ -638,7 +630,7 @@ impl<N> Node<N> {
 struct Port<P> {
     weight: P,
     node: NodeIndex,
-    edge: EdgeIndex,
+    edge: Option<EdgeIndex>,
 }
 
 #[derive(Debug, Clone)]
