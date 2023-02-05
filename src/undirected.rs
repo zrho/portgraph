@@ -116,6 +116,57 @@ impl<N, E, P> PortGraph<N, E, P> {
         port_index
     }
 
+    /// Swaps the ports at two positions in a node's port list.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the node does not exist or the indices are out of bounds.
+    pub fn swap_ports(&mut self, node: NodeIndex, a: usize, b: usize) {
+        let ports = &mut self.nodes[node].ports.slice_mut(&mut self.port_lists);
+        ports.swap(a, b);
+    }
+
+    /// Sorts the ports of a node using a comparison function.
+    ///
+    /// This sort is stable.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the node does not exist.
+    pub fn sort_ports_by<F>(&mut self, node: NodeIndex, cmp: F)
+    where
+        F: Fn(&N, PortIndex, &P, PortIndex, &P) -> std::cmp::Ordering,
+    {
+        let node_data = &mut self.nodes[node];
+        let ports = node_data.ports.slice_mut(&mut self.port_lists);
+        ports.sort_by(|a, b| {
+            cmp(
+                &node_data.weight,
+                *a,
+                &self.ports[*a].weight,
+                *b,
+                &self.ports[*b].weight,
+            )
+        });
+    }
+
+    /// Sorts the ports of a node by a key.
+    ///
+    /// This sort is stable.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the node does not exist.
+    pub fn sort_ports_by_key<F, K>(&mut self, node: NodeIndex, mut key: F)
+    where
+        F: FnMut(&N, PortIndex, &P) -> K,
+        K: Ord,
+    {
+        let node_data = &mut self.nodes[node];
+        let ports = node_data.ports.slice_mut(&mut self.port_lists);
+        ports.sort_by_key(|port| key(&node_data.weight, *port, &self.ports[*port].weight));
+    }
+
     /// Adds a port to a node at an index within the node's list of ports.
     ///
     /// # Panics
