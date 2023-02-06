@@ -2,8 +2,7 @@ use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criteri
 use portgraph::PortGraph;
 
 fn make_line_graph(size: usize) -> PortGraph<usize, usize, usize> {
-    // TODO: preallocate capacity
-    let mut graph = PortGraph::new();
+    let mut graph = PortGraph::with_capacity(size, size, size * 2);
     let mut prev_node = graph.add_node_with_ports(0, [0, 1]);
 
     for i in 1..size {

@@ -25,6 +25,13 @@ where
         }
     }
 
+    pub fn with_capacity(capacity: usize) -> Self {
+        Self {
+            data: Vec::with_capacity(capacity),
+            free: Vec::new(),
+        }
+    }
+
     /// Allocate a block of a given size class and return its starting index in `data`.
     ///
     /// This will attempt to use a block from the free list of the size class.

@@ -30,6 +30,15 @@ impl<N, E, P> PortGraph<N, E, P> {
         }
     }
 
+    pub fn with_capacity(nodes: usize, edges: usize, ports: usize) -> Self {
+        Self {
+            nodes: Slab::with_capacity(nodes),
+            edges: Slab::with_capacity(edges),
+            ports: Slab::with_capacity(ports),
+            port_lists: ListPool::with_capacity(ports * 4),
+        }
+    }
+
     /// Adds a new node to the graph with no ports.
     ///
     /// # Example
