@@ -6,6 +6,7 @@
 
 pub mod graph;
 pub mod memory;
+pub mod nested;
 pub mod undirected;
 pub use undirected::PortGraph;
 
@@ -40,10 +41,17 @@ impl Direction {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+enum Relative<T> {
+    Before(T),
+    After(T),
+}
+
 make_entity! {
     pub struct NodeIndex(u32);
-    pub struct PortIndex(u32);
+    pub struct RegionIndex(u32);
     pub struct EdgeIndex(u32);
+    pub struct PortIndex(u32);
 }
 
 // #[cfg(feature = "pyo3")]

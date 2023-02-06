@@ -97,6 +97,12 @@ impl<N, E> Graph<N, E> {
         })
     }
 
+    /// Returns the index at which the next node will be inserted.
+    #[inline(always)]
+    pub fn next_node_index(&self) -> NodeIndex {
+        self.nodes.next_index()
+    }
+
     /// Add a node to the graph with specified incoming and outgoing edges.
     ///
     /// # Example
@@ -728,12 +734,14 @@ impl<N, E> Graph<N, E> {
 impl<N, E> std::ops::Index<NodeIndex> for Graph<N, E> {
     type Output = N;
 
+    #[inline(always)]
     fn index(&self, index: NodeIndex) -> &Self::Output {
         &self.nodes.get(index).unwrap().weight
     }
 }
 
 impl<N, E> std::ops::IndexMut<NodeIndex> for Graph<N, E> {
+    #[inline(always)]
     fn index_mut(&mut self, index: NodeIndex) -> &mut Self::Output {
         &mut self.nodes.get_mut(index).unwrap().weight
     }
@@ -742,12 +750,14 @@ impl<N, E> std::ops::IndexMut<NodeIndex> for Graph<N, E> {
 impl<N, E> std::ops::Index<EdgeIndex> for Graph<N, E> {
     type Output = E;
 
+    #[inline(always)]
     fn index(&self, index: EdgeIndex) -> &Self::Output {
         &self.edges.get(index).unwrap().weight
     }
 }
 
 impl<N, E> std::ops::IndexMut<EdgeIndex> for Graph<N, E> {
+    #[inline(always)]
     fn index_mut(&mut self, index: EdgeIndex) -> &mut Self::Output {
         &mut self.edges.get_mut(index).unwrap().weight
     }

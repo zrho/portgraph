@@ -58,6 +58,12 @@ where
         matches!(self.data.get(key.index()), Some(Entry::Full(_)))
     }
 
+    /// Returns the index at which the next entry will be inserted.
+    #[inline(always)]
+    pub fn next_index(&self) -> K {
+        K::new(self.free)
+    }
+
     pub fn insert(&mut self, value: V) -> K {
         let index = self.free;
 
@@ -94,6 +100,7 @@ where
         }
     }
 
+    #[inline]
     pub fn get(&self, key: K) -> Option<&V> {
         match self.data.get(key.index()) {
             Some(Entry::Full(value)) => Some(value),
@@ -101,6 +108,7 @@ where
         }
     }
 
+    #[inline]
     pub fn get_mut(&mut self, key: K) -> Option<&mut V> {
         match self.data.get_mut(key.index()) {
             Some(Entry::Full(value)) => Some(value),
