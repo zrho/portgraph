@@ -2,12 +2,11 @@
 use pyo3::prelude::*;
 use std::collections::BTreeMap;
 use std::fmt::{self, Debug};
-use std::hash::Hash;
 use std::iter::FusedIterator;
 use thiserror::Error;
 
 use crate::memory::{slab, Slab};
-use crate::{EdgeIndex, NodeIndex};
+pub use crate::{Direction, EdgeIndex, NodeIndex};
 
 /// The graph's node type.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -51,38 +50,6 @@ impl<E> Edge<E> {
         }
     }
 }
-
-#[cfg_attr(feature = "pyo3", pyclass)]
-#[derive(Clone, Copy, Debug, PartialEq, PartialOrd, Eq, Ord, Hash)]
-pub enum Direction {
-    Incoming = 0,
-    Outgoing = 1,
-}
-
-impl Default for Direction {
-    #[inline(always)]
-    fn default() -> Self {
-        Direction::Incoming
-    }
-}
-
-impl Direction {
-    #[inline(always)]
-    pub fn index(self) -> usize {
-        self as usize
-    }
-
-    #[inline(always)]
-    pub fn reverse(self) -> Direction {
-        match self {
-            Direction::Incoming => Direction::Outgoing,
-            Direction::Outgoing => Direction::Incoming,
-        }
-    }
-}
-
-/// Incoming and outgoing.
-pub const DIRECTIONS: [Direction; 2] = [Direction::Incoming, Direction::Outgoing];
 
 type NodeMap = BTreeMap<NodeIndex, NodeIndex>;
 type EdgeMap = BTreeMap<EdgeIndex, EdgeIndex>;
@@ -190,7 +157,7 @@ impl<N, E> Graph<N, E> {
     pub fn remove_node(&mut self, node_index: NodeIndex) -> Option<N> {
         let node = self.nodes.remove(node_index)?;
 
-        for direction in DIRECTIONS {
+        for direction in Direction::ALL {
             let mut edge_index_next = node.edges[direction.index()];
 
             while let Some(edge_index) = edge_index_next {
@@ -726,7 +693,7 @@ impl<N, E> Graph<N, E> {
             return Err(MergeEdgesError::UnknownEdge);
         }
 
-        for direction in DIRECTIONS {
+        for direction in Direction::ALL {
             let from_node = self.edges[from].nodes[direction.index()];
             let into_node = self.edges[into].nodes[direction.index()];
 
@@ -735,7 +702,7 @@ impl<N, E> Graph<N, E> {
             }
         }
 
-        for direction in DIRECTIONS {
+        for direction in Direction::ALL {
             let from_prev = self.edge_prev(from, direction);
             let from_edge = &mut self.edges[from];
             let from_next = std::mem::take(&mut from_edge.next[direction.index()]);

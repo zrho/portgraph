@@ -1,5 +1,5 @@
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
-use portgraph::graph::{Direction, Graph};
+use portgraph::{graph::Graph, Direction};
 
 fn make_line_graph(size: usize) -> Graph<usize, (usize, usize, usize)> {
     let mut graph = Graph::with_capacity(size, size * 2);
