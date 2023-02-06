@@ -725,6 +725,34 @@ impl<N, E> Graph<N, E> {
     }
 }
 
+impl<N, E> std::ops::Index<NodeIndex> for Graph<N, E> {
+    type Output = N;
+
+    fn index(&self, index: NodeIndex) -> &Self::Output {
+        &self.nodes.get(index).unwrap().weight
+    }
+}
+
+impl<N, E> std::ops::IndexMut<NodeIndex> for Graph<N, E> {
+    fn index_mut(&mut self, index: NodeIndex) -> &mut Self::Output {
+        &mut self.nodes.get_mut(index).unwrap().weight
+    }
+}
+
+impl<N, E> std::ops::Index<EdgeIndex> for Graph<N, E> {
+    type Output = E;
+
+    fn index(&self, index: EdgeIndex) -> &Self::Output {
+        &self.edges.get(index).unwrap().weight
+    }
+}
+
+impl<N, E> std::ops::IndexMut<EdgeIndex> for Graph<N, E> {
+    fn index_mut(&mut self, index: EdgeIndex) -> &mut Self::Output {
+        &mut self.edges.get_mut(index).unwrap().weight
+    }
+}
+
 /// Error returned by [Graph::connect] and similar methods.
 #[derive(Debug, Error)]
 pub enum ConnectError {
