@@ -5,6 +5,10 @@ edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
+[lib]
+bench = false
+name = "portgraph"
+
 [dependencies]
 thiserror = "1.0.28"
 pyo3 = { version = "0.16.5", optional = true, features = [
