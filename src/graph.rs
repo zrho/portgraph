@@ -4,157 +4,50 @@ use std::collections::BTreeMap;
 use std::fmt::{self, Debug};
 use std::hash::Hash;
 use std::iter::FusedIterator;
-use std::{iter, slice};
 use thiserror::Error;
 
-/// The default integer type for graph indices.
-/// `u32` is the default to reduce the size of the graph's data and improve
-/// performance in the common case.
-///
-/// Used for node and edge indices in `Graph` and `StableGraph`, used
-/// for node indices in `Csr`.
-pub type DefaultIx = u32;
-
-/// Node identifier.
-#[cfg_attr(feature = "pyo3", derive(FromPyObject))]
-#[derive(Copy, Clone, PartialEq, PartialOrd, Eq, Ord, Hash, Debug)]
-pub struct NodeIndex(DefaultIx);
-
-impl NodeIndex {
-    #[inline]
-    pub fn new(x: usize) -> Self {
-        NodeIndex(x as DefaultIx)
-    }
-
-    #[inline]
-    pub fn index(self) -> usize {
-        self.0 as usize
-    }
-
-    #[inline]
-    pub fn end() -> Self {
-        NodeIndex(DefaultIx::MAX)
-    }
-
-    fn _into_edge(self) -> EdgeIndex {
-        EdgeIndex(self.0)
-    }
-
-    fn valid(self) -> Option<Self> {
-        if self == Self::end() {
-            None
-        } else {
-            Some(self)
-        }
-    }
-}
-
-impl Default for NodeIndex {
-    fn default() -> Self {
-        Self::end()
-    }
-}
-
-impl From<DefaultIx> for NodeIndex {
-    fn from(ix: DefaultIx) -> Self {
-        NodeIndex(ix)
-    }
-}
-
-/// Edge identifier.
-#[cfg_attr(feature = "pyo3", derive(FromPyObject))]
-#[derive(Copy, Clone, PartialEq, PartialOrd, Eq, Ord, Hash, Debug)]
-pub struct EdgeIndex(DefaultIx);
-
-impl EdgeIndex {
-    #[inline]
-    pub fn new(x: usize) -> Self {
-        EdgeIndex(x as DefaultIx)
-    }
-
-    #[inline]
-    pub fn index(self) -> usize {
-        self.0 as usize
-    }
-
-    /// An invalid `EdgeIndex` used to denote absence of an edge, for example
-    /// to end an adjacency list.
-    #[inline]
-    pub fn end() -> Self {
-        EdgeIndex(DefaultIx::MAX)
-    }
-
-    fn _into_node(self) -> NodeIndex {
-        NodeIndex(self.0)
-    }
-
-    fn valid(self) -> Option<Self> {
-        if self == Self::end() {
-            None
-        } else {
-            Some(self)
-        }
-    }
-}
-
-impl Default for EdgeIndex {
-    fn default() -> Self {
-        Self::end()
-    }
-}
-
-impl From<DefaultIx> for EdgeIndex {
-    fn from(ix: DefaultIx) -> Self {
-        EdgeIndex(ix)
-    }
-}
+use crate::memory::{slab, Slab};
+use crate::{EdgeIndex, NodeIndex};
 
 /// The graph's node type.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct Node<N> {
-    /// Associated node data or `None` if the node is free.
-    pub weight: Option<N>,
+pub struct Node<N> {
+    /// Associated node data.
+    weight: N,
 
     /// The first incoming and outgoing edge.
-    ///
-    /// If the node is free, the first component is used as part of a linked list of free nodes.
-    /// The types do not match up, but edge and node indices are both just integers so we repurpose
-    /// the space.
-    edges: [EdgeIndex; 2],
+    edges: [Option<EdgeIndex>; 2],
 }
 
 impl<N> Node<N> {
     fn relink(&mut self, edge_map: &EdgeMap) {
         for i in 0..=1 {
-            self.edges[i] = edge_map.get(&self.edges[i]).copied().unwrap_or_default();
+            self.edges[i] = self.edges[i].and_then(|edge| edge_map.get(&edge)).copied();
         }
     }
 }
 
 /// The graph's edge type.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct Edge<E> {
-    /// Associated edge data or `None` if the edge is free.
-    pub weight: Option<E>,
+pub struct Edge<E> {
+    /// Associated edge data.
+    weight: E,
 
-    /// The nodes that the edge is connected to or `NodeIndex::end()` if the edge is dangling.
+    /// The nodes that the edge is connected to.
     ///
     /// The first component is the target and the second component the source of the edge. This
     /// is so that the array can be indexed by `Direction`.
-    nodes: [NodeIndex; 2],
+    nodes: [Option<NodeIndex>; 2],
 
     /// Intrusive linked lists that point to the next edge connected to the edge's endpoints.
-    /// This is `EdgeIndex::end()` if the edge is dangling.
-    ///
-    /// If the edge is free, the first component is used as part of a linked list of free edges.
-    next: [EdgeIndex; 2],
+    next: [Option<EdgeIndex>; 2],
 }
 
 impl<E> Edge<E> {
     fn relink(&mut self, node_map: &NodeMap, edge_map: &EdgeMap) {
         for i in 0..=1 {
-            self.next[i] = edge_map.get(&self.next[i]).copied().unwrap_or_default();
-            self.nodes[i] = node_map.get(&self.nodes[i]).copied().unwrap_or_default();
+            self.next[i] = self.next[i].and_then(|edge| edge_map.get(&edge)).copied();
+            self.nodes[i] = self.nodes[i].and_then(|node| node_map.get(&node)).copied();
         }
     }
 }
@@ -167,16 +60,19 @@ pub enum Direction {
 }
 
 impl Default for Direction {
+    #[inline(always)]
     fn default() -> Self {
         Direction::Incoming
     }
 }
 
 impl Direction {
+    #[inline(always)]
     pub fn index(self) -> usize {
         self as usize
     }
 
+    #[inline(always)]
     pub fn reverse(self) -> Direction {
         match self {
             Direction::Incoming => Direction::Outgoing,
@@ -193,12 +89,8 @@ type EdgeMap = BTreeMap<EdgeIndex, EdgeIndex>;
 
 #[derive(Clone, PartialEq, Eq)]
 pub struct Graph<N, E> {
-    nodes: Vec<Node<N>>,
-    edges: Vec<Edge<E>>,
-    node_count: usize,
-    edge_count: usize,
-    free_node: NodeIndex,
-    free_edge: EdgeIndex,
+    nodes: Slab<NodeIndex, Node<N>>,
+    edges: Slab<EdgeIndex, Edge<E>>,
 }
 
 impl<N: Debug, E: Debug> Debug for Graph<N, E> {
@@ -206,10 +98,6 @@ impl<N: Debug, E: Debug> Debug for Graph<N, E> {
         f.debug_struct("Graph")
             .field("nodes", &self.nodes)
             .field("edges", &self.edges)
-            .field("node_count", &self.node_count)
-            .field("edge_count", &self.edge_count)
-            .field("free_node", &self.free_node)
-            .field("free_edge", &self.free_edge)
             .finish()
     }
 }
@@ -229,36 +117,17 @@ impl<N, E> Graph<N, E> {
     /// Create a new empty graph with preallocated capacities for nodes and edges.
     pub fn with_capacity(nodes: usize, edges: usize) -> Self {
         Self {
-            nodes: Vec::with_capacity(nodes),
-            edges: Vec::with_capacity(edges),
-            node_count: 0,
-            edge_count: 0,
-            free_node: NodeIndex::end(),
-            free_edge: EdgeIndex::end(),
+            nodes: Slab::with_capacity(nodes),
+            edges: Slab::with_capacity(edges),
         }
     }
 
     /// Add a node to the graph.
     pub fn add_node(&mut self, weight: N) -> NodeIndex {
-        let node = Node {
-            weight: Some(weight),
-            edges: [EdgeIndex::default(); 2],
-        };
-
-        self.node_count += 1;
-
-        match self.free_node.valid() {
-            Some(index) => {
-                self.free_node = self.nodes[index.index()].edges[0]._into_node();
-                self.nodes[index.index()] = node;
-                index
-            }
-            None => {
-                let index = self.nodes.len();
-                self.nodes.push(node);
-                NodeIndex::new(index)
-            }
-        }
+        self.nodes.insert(Node {
+            weight,
+            edges: [None; 2],
+        })
     }
 
     /// Add a node to the graph with specified incoming and outgoing edges.
@@ -291,26 +160,11 @@ impl<N, E> Graph<N, E> {
 
     /// Add an edge to the graph.
     pub fn add_edge(&mut self, weight: E) -> EdgeIndex {
-        let edge = Edge {
-            weight: Some(weight),
-            next: [EdgeIndex::default(); 2],
-            nodes: [NodeIndex::default(); 2],
-        };
-
-        self.edge_count += 1;
-
-        match self.free_edge.valid() {
-            Some(index) => {
-                self.free_edge = self.edges[index.index()].next[0];
-                self.edges[index.index()] = edge;
-                index
-            }
-            None => {
-                let index = self.edges.len();
-                self.edges.push(edge);
-                EdgeIndex::new(index)
-            }
-        }
+        self.edges.insert(Edge {
+            weight,
+            next: [None; 2],
+            nodes: [None; 2],
+        })
     }
 
     /// Remove a node from the graph.
@@ -334,25 +188,19 @@ impl<N, E> Graph<N, E> {
     /// assert_eq!(graph.edge_endpoint(e1, Direction::Incoming), None);
     /// ```
     pub fn remove_node(&mut self, node_index: NodeIndex) -> Option<N> {
-        let node = self.nodes.get_mut(node_index.index())?;
-        let weight = std::mem::take(&mut node.weight)?;
+        let node = self.nodes.remove(node_index)?;
 
         for direction in DIRECTIONS {
-            let mut edge_index = node.edges[direction.index()];
+            let mut edge_index_next = node.edges[direction.index()];
 
-            while edge_index != EdgeIndex::end() {
-                let edge = &mut self.edges[edge_index.index()];
-                edge.nodes[direction.index()] = NodeIndex::end();
-                edge_index = std::mem::take(&mut edge.next[direction.index()]);
+            while let Some(edge_index) = edge_index_next {
+                let edge = &mut self.edges[edge_index];
+                edge.nodes[direction.index()] = None;
+                edge_index_next = std::mem::take(&mut edge.next[direction.index()]);
             }
         }
 
-        self.nodes[node_index.index()].edges[0] = self.free_node._into_edge();
-        self.free_node = node_index;
-
-        self.node_count -= 1;
-
-        Some(weight)
+        Some(node.weight)
     }
 
     /// Remove an edge from the graph.
@@ -380,34 +228,18 @@ impl<N, E> Graph<N, E> {
     pub fn remove_edge(&mut self, e: EdgeIndex) -> Option<E> {
         self.disconnect(e, Direction::Incoming);
         self.disconnect(e, Direction::Outgoing);
-
-        let edge = self.edges.get_mut(e.index())?;
-        let weight = std::mem::take(&mut edge.weight)?;
-
-        self.edges[e.index()].next[0] = self.free_edge;
-        self.free_edge = e;
-
-        self.edge_count -= 1;
-
-        Some(weight)
+        let edge = self.edges.remove(e)?;
+        Some(edge.weight)
     }
 
     /// Check whether the graph has a node with a given index.
     pub fn has_node(&self, n: NodeIndex) -> bool {
-        if let Some(node) = self.nodes.get(n.index()) {
-            node.weight.is_some()
-        } else {
-            false
-        }
+        self.nodes.contains(n)
     }
 
     /// Check whether the graph has an edge with a given index.
     pub fn has_edge(&self, e: EdgeIndex) -> bool {
-        if let Some(edge) = self.edges.get(e.index()) {
-            edge.weight.is_some()
-        } else {
-            false
-        }
+        self.edges.contains(e)
     }
 
     /// Connect an edge to an incoming or outgoing port of a node.
@@ -436,22 +268,24 @@ impl<N, E> Graph<N, E> {
         direction: Direction,
         edge_prev: EdgeIndex,
     ) -> Result<(), ConnectError> {
-        if !self.has_node(node) {
-            return Err(ConnectError::UnknownNode);
-        } else if !self.has_edge(edge) | !self.has_edge(edge_prev) {
-            return Err(ConnectError::UnknownEdge);
-        // } else if !self.has_edge(edge_prev) {
-        //     return Err(ConnectError::UnknownEdge);
-        } else if self.edges[edge_prev.index()].nodes[direction.index()] != node {
+        if edge == edge_prev {
+            return Err(ConnectError::SameEdge);
+        }
+
+        let (edge_data, edge_prev_data) = self
+            .edges
+            .get_mut_2(edge, edge_prev)
+            .ok_or(ConnectError::UnknownEdge)?;
+
+        if edge_prev_data.nodes[direction.index()] != Some(node) {
             return Err(ConnectError::NodeMismatch);
-        } else if self.edges[edge.index()].nodes[direction.index()] != NodeIndex::end() {
+        } else if edge_data.nodes[direction.index()].is_some() {
             return Err(ConnectError::AlreadyConnected);
         }
 
-        self.edges[edge.index()].nodes[direction.index()] = node;
-        self.edges[edge.index()].next[direction.index()] =
-            self.edges[edge_prev.index()].next[direction.index()];
-        self.edges[edge_prev.index()].next[direction.index()] = edge;
+        edge_data.nodes[direction.index()] = Some(node);
+        edge_data.next[direction.index()] = edge_prev_data.next[direction.index()];
+        edge_prev_data.next[direction.index()] = Some(edge);
 
         Ok(())
     }
@@ -481,18 +315,16 @@ impl<N, E> Graph<N, E> {
         edge: EdgeIndex,
         direction: Direction,
     ) -> Result<(), ConnectError> {
-        if !self.has_node(node) {
-            return Err(ConnectError::UnknownNode);
-        } else if !self.has_edge(edge) {
-            return Err(ConnectError::UnknownEdge);
-        } else if self.edges[edge.index()].nodes[direction.index()] != NodeIndex::end() {
+        let node_data = self.nodes.get_mut(node).ok_or(ConnectError::UnknownNode)?;
+        let edge_data = self.edges.get_mut(edge).ok_or(ConnectError::UnknownEdge)?;
+
+        if edge_data.nodes[direction.index()].is_some() {
             return Err(ConnectError::AlreadyConnected);
         }
 
-        self.edges[edge.index()].nodes[direction.index()] = node;
-        self.edges[edge.index()].next[direction.index()] =
-            self.nodes[node.index()].edges[direction.index()];
-        self.nodes[node.index()].edges[direction.index()] = edge;
+        edge_data.nodes[direction.index()] = Some(node);
+        edge_data.next[direction.index()] = node_data.edges[direction.index()];
+        node_data.edges[direction.index()] = Some(edge);
 
         Ok(())
     }
@@ -576,17 +408,17 @@ impl<N, E> Graph<N, E> {
 
         let prev = self.edge_prev(edge_index, direction);
 
-        let edge = &mut self.edges[edge_index.index()];
+        let edge = &mut self.edges[edge_index];
         let node = std::mem::take(&mut edge.nodes[direction.index()]);
         let next = std::mem::take(&mut edge.next[direction.index()]);
 
-        if node == NodeIndex::end() {
+        let Some(node) = node else {
             return;
-        }
+        };
 
         match prev {
-            Some(prev) => self.edges[prev.index()].next[direction.index()] = next,
-            None => self.nodes[node.index()].edges[direction.index()] = next,
+            Some(prev) => self.edges[prev].next[direction.index()] = next,
+            None => self.nodes[node].edges[direction.index()] = next,
         }
     }
 
@@ -642,38 +474,37 @@ impl<N, E> Graph<N, E> {
 
     /// A reference to the weight of the node with a given index.
     pub fn node_weight(&self, a: NodeIndex) -> Option<&N> {
-        self.nodes.get(a.index())?.weight.as_ref()
+        Some(&self.nodes.get(a)?.weight)
     }
 
     /// A mutable reference to the weight of the node with a given index.
     pub fn node_weight_mut(&mut self, a: NodeIndex) -> Option<&mut N> {
-        self.nodes.get_mut(a.index())?.weight.as_mut()
+        Some(&mut self.nodes.get_mut(a)?.weight)
     }
 
     /// A reference to the weight of the edge with a given index.
     pub fn edge_weight(&self, e: EdgeIndex) -> Option<&E> {
-        self.edges.get(e.index())?.weight.as_ref()
+        Some(&self.edges.get(e)?.weight)
     }
 
     /// A mutable reference to the weight of the edge with a given index.
     pub fn edge_weight_mut(&mut self, e: EdgeIndex) -> Option<&mut E> {
-        self.edges.get_mut(e.index())?.weight.as_mut()
+        Some(&mut self.edges.get_mut(e)?.weight)
     }
 
     /// The endpoint of an edge in a given direction.
     ///
     /// Returns `None` if the edge does not exist or has no endpoint in that direction.
     pub fn edge_endpoint(&self, e: EdgeIndex, direction: Direction) -> Option<NodeIndex> {
-        self.edges.get(e.index())?.nodes[direction.index()].valid()
+        self.edges.get(e)?.nodes[direction.index()]
     }
 
     /// Iterator over the edges that are connected to a node.
     pub fn node_edges(&self, n: NodeIndex, direction: Direction) -> NodeEdges<'_, N, E> {
         let next = self
             .nodes
-            .get(n.index())
-            .map(|node| node.edges[direction.index()])
-            .unwrap_or_default();
+            .get(n)
+            .and_then(|node| node.edges[direction.index()]);
 
         NodeEdges {
             graph: self,
@@ -709,10 +540,7 @@ impl<N, E> Graph<N, E> {
     /// assert!(graph.node_indices().eq([n0, n2]));
     /// ```
     pub fn node_indices(&self) -> NodeIndices<N> {
-        NodeIndices {
-            len: self.node_count(),
-            iter: self.nodes.iter().enumerate(),
-        }
+        NodeIndices(self.nodes.iter())
     }
 
     /// Iterator over the edge indices of the graph.
@@ -732,38 +560,35 @@ impl<N, E> Graph<N, E> {
     /// assert!(graph.edge_indices().eq([e1, e3]));
     /// ```
     pub fn edge_indices(&self) -> EdgeIndices<E> {
-        EdgeIndices {
-            len: self.edge_count(),
-            iter: self.edges.iter().enumerate(),
-        }
+        EdgeIndices(self.edges.iter())
     }
 
     /// Iterator over the node weights of the graph.
     pub fn node_weights(&self) -> impl Iterator<Item = &N> + '_ {
-        self.nodes.iter().filter_map(|n| n.weight.as_ref())
+        self.nodes.iter().map(|(_, node)| &node.weight)
     }
 
     /// Iterator over the edge weights of the graph.
     pub fn edge_weights(&self) -> impl Iterator<Item = &E> + '_ {
-        self.edges.iter().filter_map(|n| n.weight.as_ref())
+        self.edges.iter().map(|(_, node)| &node.weight)
     }
 
     /// Number of nodes in the graph.
     #[inline]
     pub fn node_count(&self) -> usize {
-        self.node_count
+        self.nodes.len()
     }
 
     /// Number of edges in the graph.
     #[inline]
     pub fn edge_count(&self) -> usize {
-        self.edge_count
+        self.edges.len()
     }
 
     /// Whether the graph has neither nodes nor edges.
     #[inline]
     pub fn is_empty(&self) -> bool {
-        self.node_count == 0 && self.edge_count == 0
+        self.nodes.is_empty() && self.edges.is_empty()
     }
 
     /// Insert a graph into this graph.
@@ -777,34 +602,30 @@ impl<N, E> Graph<N, E> {
         let node_map: NodeMap = other
             .nodes
             .into_iter()
-            .enumerate()
-            .filter_map(|(index, node)| {
-                let new_index = self.add_node(node.weight?);
-                let old_index = NodeIndex::new(index);
-                self.nodes[new_index.index()].edges = node.edges;
-                Some((old_index, new_index))
+            .map(|(old_index, node)| {
+                let new_index = self.add_node(node.weight);
+                self.nodes[new_index].edges = node.edges;
+                (old_index, new_index)
             })
             .collect();
 
         let edge_map: EdgeMap = other
             .edges
             .into_iter()
-            .enumerate()
-            .filter_map(|(index, edge)| {
-                let new_index = self.add_edge(edge.weight?);
-                let old_index = EdgeIndex::new(index);
-                self.edges[new_index.index()].nodes = edge.nodes;
-                self.edges[new_index.index()].next = edge.next;
-                Some((old_index, new_index))
+            .map(|(old_index, edge)| {
+                let new_index = self.add_edge(edge.weight);
+                self.edges[new_index].nodes = edge.nodes;
+                self.edges[new_index].next = edge.next;
+                (old_index, new_index)
             })
             .collect();
 
         for node_index in node_map.values() {
-            self.nodes[node_index.index()].relink(&edge_map);
+            self.nodes[*node_index].relink(&edge_map);
         }
 
         for edge_index in edge_map.values() {
-            self.edges[edge_index.index()].relink(&node_map, &edge_map);
+            self.edges[*edge_index].relink(&node_map, &edge_map);
         }
 
         (node_map, edge_map)
@@ -842,37 +663,25 @@ impl<N, E> Graph<N, E> {
     /// assert!(graph.node_edges(n0, Direction::Outgoing).eq([e1]));
     /// ```
     pub fn compact(&mut self) -> (NodeMap, EdgeMap) {
-        let node_map: NodeMap = self
-            .node_indices()
-            .enumerate()
-            .map(|(new_index, index)| (index, NodeIndex::new(new_index)))
-            .collect();
+        let mut node_map = NodeMap::new();
+        let mut edge_map = EdgeMap::new();
 
-        let edge_map: EdgeMap = self
-            .edge_indices()
-            .enumerate()
-            .map(|(new_index, index)| (index, EdgeIndex::new(new_index)))
-            .collect();
-
-        self.nodes.retain_mut(|node| {
-            if node.weight.is_some() {
-                node.relink(&edge_map);
-                true
-            } else {
-                false
-            }
+        self.nodes.compact(|_, old_index, new_index| {
+            node_map.insert(old_index, new_index);
         });
 
-        self.edges.retain_mut(|edge| {
-            if edge.weight.is_some() {
-                edge.relink(&node_map, &edge_map);
-                true
-            } else {
-                false
-            }
+        self.edges.compact(|_, old_index, new_index| {
+            edge_map.insert(old_index, new_index);
         });
-        self.free_node = NodeIndex::end();
-        self.free_edge = EdgeIndex::end();
+
+        for (_, node) in self.nodes.iter_mut() {
+            node.relink(&edge_map);
+        }
+
+        for (_, edge) in self.edges.iter_mut() {
+            edge.relink(&node_map, &edge_map);
+        }
+
         (node_map, edge_map)
     }
 
@@ -918,30 +727,30 @@ impl<N, E> Graph<N, E> {
         }
 
         for direction in DIRECTIONS {
-            let from_node = self.edges[from.index()].nodes[direction.index()];
-            let into_node = self.edges[into.index()].nodes[direction.index()];
+            let from_node = self.edges[from].nodes[direction.index()];
+            let into_node = self.edges[into].nodes[direction.index()];
 
-            if from_node != NodeIndex::end() && into_node != NodeIndex::end() {
+            if from_node.is_some() && into_node.is_some() {
                 return Err(MergeEdgesError::AlreadyConnected);
             }
         }
 
         for direction in DIRECTIONS {
             let from_prev = self.edge_prev(from, direction);
-            let from_edge = &mut self.edges[from.index()];
+            let from_edge = &mut self.edges[from];
             let from_next = std::mem::take(&mut from_edge.next[direction.index()]);
             let from_node = std::mem::take(&mut from_edge.nodes[direction.index()]);
 
-            if from_node == NodeIndex::end() {
+            let Some(from_node) = from_node else {
                 continue;
-            }
+            };
 
-            self.edges[into.index()].nodes[direction.index()] = from_node;
-            self.edges[into.index()].next[direction.index()] = from_next;
+            self.edges[into].nodes[direction.index()] = Some(from_node);
+            self.edges[into].next[direction.index()] = from_next;
 
             match from_prev {
-                Some(prev) => self.edges[prev.index()].next[direction.index()] = into,
-                None => self.nodes[from_node.index()].edges[direction.index()] = into,
+                Some(prev) => self.edges[prev].next[direction.index()] = Some(into),
+                None => self.nodes[from_node].edges[direction.index()] = Some(into),
             }
         }
 
@@ -960,6 +769,8 @@ pub enum ConnectError {
     NodeMismatch,
     #[error("edge is already connected")]
     AlreadyConnected,
+    #[error("can not connect edge relative to itself")]
+    SameEdge,
 }
 
 /// Error returned by [Graph::merge_edges].
@@ -976,42 +787,32 @@ pub enum MergeEdgesError {
 pub struct NodeEdges<'a, N, E> {
     graph: &'a Graph<N, E>,
     direction: Direction,
-    next: EdgeIndex,
+    next: Option<EdgeIndex>,
 }
 
 impl<'a, N, E> Iterator for NodeEdges<'a, N, E> {
     type Item = EdgeIndex;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let next = self.graph.edges[self.next.valid()?.index()].next[self.direction.index()];
-        Some(std::mem::replace(&mut self.next, next))
+        let next = self.graph.edges[self.next?].next[self.direction.index()];
+        std::mem::replace(&mut self.next, next)
     }
 }
 
 impl<'a, N, E> FusedIterator for NodeEdges<'a, N, E> {}
 
 /// Iterator created by [Graph::node_indices].
-#[derive(Debug, Clone)]
-pub struct NodeIndices<'a, N: 'a> {
-    iter: iter::Enumerate<slice::Iter<'a, Node<N>>>,
-    len: usize,
-}
+pub struct NodeIndices<'a, N: 'a>(slab::Iter<'a, NodeIndex, Node<N>>);
 
 impl<'a, N> Iterator for NodeIndices<'a, N> {
     type Item = NodeIndex;
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.iter.find_map(|(i, node)| {
-            if node.weight.is_some() {
-                self.len -= 1;
-                Some(NodeIndex::new(i))
-            } else {
-                None
-            }
-        })
+        Some(self.0.next()?.0)
     }
+
     fn size_hint(&self) -> (usize, Option<usize>) {
-        (self.len, Some(self.len))
+        self.0.size_hint()
     }
 }
 
@@ -1019,27 +820,17 @@ impl<'a, N> ExactSizeIterator for NodeIndices<'a, N> {}
 impl<'a, N> FusedIterator for NodeIndices<'a, N> {}
 
 /// Iterator created by [Graph::edge_indices].
-#[derive(Debug, Clone)]
-pub struct EdgeIndices<'a, N: 'a> {
-    iter: iter::Enumerate<slice::Iter<'a, Edge<N>>>,
-    len: usize,
-}
+pub struct EdgeIndices<'a, E: 'a>(slab::Iter<'a, EdgeIndex, Edge<E>>);
 
-impl<'a, N> Iterator for EdgeIndices<'a, N> {
+impl<'a, E> Iterator for EdgeIndices<'a, E> {
     type Item = EdgeIndex;
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.iter.find_map(|(i, edge)| {
-            if edge.weight.is_some() {
-                self.len -= 1;
-                Some(EdgeIndex::new(i))
-            } else {
-                None
-            }
-        })
+        Some(self.0.next()?.0)
     }
+
     fn size_hint(&self) -> (usize, Option<usize>) {
-        (self.len, Some(self.len))
+        self.0.size_hint()
     }
 }
 

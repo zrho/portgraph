@@ -4,6 +4,7 @@
 // pub mod substitute;
 // pub mod toposort;
 
+pub mod graph;
 pub mod memory;
 pub mod undirected;
 pub use undirected::PortGraph;

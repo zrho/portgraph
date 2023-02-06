@@ -37,6 +37,7 @@ macro_rules! make_entity {
                 }
             }
 
+            #[inline(always)]
             fn index(self) -> usize {
                 u32::from(self.0).wrapping_sub(1) as usize
             }

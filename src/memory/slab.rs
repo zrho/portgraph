@@ -1,4 +1,5 @@
 use std::{
+    cmp::Ordering,
     iter::FusedIterator,
     marker::PhantomData,
     ops::{Index, IndexMut},
@@ -7,7 +8,7 @@ use std::{
 use crate::memory::EntityIndex;
 
 /// A slab arena that manages fixed-sized objects.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Slab<K, V> {
     data: Vec<Entry<V>>,
     free: usize,
@@ -107,6 +108,28 @@ where
         }
     }
 
+    pub fn get_mut_2(&mut self, key0: K, key1: K) -> Option<(&mut V, &mut V)> {
+        let index0 = key0.index();
+        let index1 = key1.index();
+
+        let entries = match index0.cmp(&index1) {
+            Ordering::Less => {
+                let (slice0, slice1) = self.data.split_at_mut(index1);
+                (slice0.get_mut(index0), slice1.get_mut(0))
+            }
+            Ordering::Greater => {
+                let (slice1, slice0) = self.data.split_at_mut(index0);
+                (slice0.get_mut(0), slice1.get_mut(index1))
+            }
+            Ordering::Equal => panic!(),
+        };
+
+        match entries {
+            (Some(Entry::Full(value0)), Some(Entry::Full(value1))) => Some((value0, value1)),
+            _ => None,
+        }
+    }
+
     pub fn clear(&mut self) {
         self.data.clear();
         self.free = 0;
@@ -201,7 +224,7 @@ where
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 enum Entry<V> {
     Free(usize),
     Full(V),
