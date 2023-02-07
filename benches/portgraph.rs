@@ -1,4 +1,7 @@
-use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, PlotConfiguration, AxisScale};
+use criterion::{
+    black_box, criterion_group, criterion_main, AxisScale, BenchmarkId, Criterion,
+    PlotConfiguration,
+};
 use portgraph::graph_test;
 use portgraph::{graph::Graph, Direction, PortGraph};
 
@@ -23,24 +26,24 @@ fn make_line_graph(size: usize) -> Graph<usize, (usize, usize, usize)> {
     graph
 }
 
-fn make_line_graph_test(size: usize) -> graph_test::Graph<usize, (usize, usize, usize)> {
-    let mut graph = graph_test::Graph::with_capacity(size, size * 2);
-    let edge0 = graph.add_edge((0, 0, 1));
-    let edge1 = graph.add_edge((0, 0, 1));
-    let mut prev_node = graph.add_node_with_edges(0, [], [edge0, edge1]);
+// fn make_line_graph_test(size: usize) -> graph_test::Graph<usize, (usize, usize, usize)> {
+//     let mut graph = graph_test::Graph::with_capacity(size, size * 2);
+//     let edge0 = graph.add_edge((0, 0, 1));
+//     let edge1 = graph.add_edge((0, 0, 1));
+//     let mut prev_node = graph.add_node_with_edges(0, [], [edge0, edge1]);
 
-    for i in 1..size {
-        let node_edges = graph.node_edges(prev_node, Direction::Outgoing);
-        let edge_in0 = node_edges[0];
-        let edge_in1 = node_edges[1];
-        let edge_out0 = graph.add_edge((i, i, i + 1));
-        let edge_out1 = graph.add_edge((i, i, i + 1));
-        let node = graph.add_node_with_edges(i, [edge_in0, edge_in1], [edge_out0, edge_out1]);
-        prev_node = node;
-    }
+//     for i in 1..size {
+//         let node_edges = graph.node_edges(prev_node, Direction::Outgoing);
+//         let edge_in0 = node_edges[0];
+//         let edge_in1 = node_edges[1];
+//         let edge_out0 = graph.add_edge((i, i, i + 1));
+//         let edge_out1 = graph.add_edge((i, i, i + 1));
+//         let node = graph.add_node_with_edges(i, [edge_in0, edge_in1], [edge_out0, edge_out1]);
+//         prev_node = node;
+//     }
 
-    graph
-}
+//     graph
+// }
 
 fn make_line_hypergraph(size: usize) -> PortGraph<usize, usize, usize> {
     let mut graph = PortGraph::with_capacity(size, size, size * 2);
@@ -148,11 +151,11 @@ fn bench_make_portgraph(c: &mut Criterion) {
             &size,
             |b, size| b.iter(|| black_box(make_line_hypergraph(*size))),
         );
-        g.bench_with_input(
-            BenchmarkId::new("make_line_graph_test", size),
-            &size,
-            |b, size| b.iter(|| black_box(make_line_graph_test(*size))),
-        );
+        // g.bench_with_input(
+        //     BenchmarkId::new("make_line_graph_test", size),
+        //     &size,
+        //     |b, size| b.iter(|| black_box(make_line_graph_test(*size))),
+        // );
     }
     g.finish();
 }

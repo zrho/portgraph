@@ -9,7 +9,7 @@ pub mod slab;
 pub use list::ListPool;
 pub use slab::Slab;
 
-pub trait EntityIndex: Copy + Eq {
+pub trait EntityIndex: Copy + Eq + Default {
     fn new(index: usize) -> Self {
         Self::try_new(index).unwrap()
     }

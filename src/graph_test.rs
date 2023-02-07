@@ -4,36 +4,33 @@ use thiserror::Error;
 use tinyvec::TinyVec;
 
 use crate::{
-    memory::{slab, Slab},
-    Direction, EdgeIndex, NodeIndex,
+    memory::{slab, EntityIndex, Slab},
+    Direction,
 };
 
-pub struct Graph<N, E> {
-    nodes: Slab<NodeIndex, Node<N>>,
-    edges: Slab<EdgeIndex, Edge<E>>,
+#[derive(Debug, Clone)]
+pub struct Graph<NI, EI: Default> {
+    nodes: Slab<NI, NodeData<EI>>,
+    edges: Slab<EI, EdgeData<NI>>,
 }
 
 const EDGE_LIST_SIZE: usize = 7;
 
-struct Node<N> {
-    weight: N,
+// TODO: Ideally we would not want to require the edge indices to implement
+// `Default`, but this is required for using `tinyvec`. Alternative creates such
+// as `smallvec` have `usize` large capacity, which would be a big waste of
+// space. Perhaps implement the few aspects of `tinyvec` that we need here ourselves?
+
+#[derive(Debug, Clone)]
+struct NodeData<EI: Default> {
     ports_incoming: u16,
-    edges: TinyVec<[EdgeIndex; EDGE_LIST_SIZE]>,
+    edges: TinyVec<[EI; EDGE_LIST_SIZE]>,
 }
 
-impl<N> Node<N> {
-    pub fn new(weight: N) -> Self {
-        Self {
-            weight,
-            edges: TinyVec::new(),
-            ports_incoming: 0,
-        }
-    }
-
-    pub fn new_with_ports(
-        weight: N,
-        incoming: impl IntoIterator<Item = EdgeIndex>,
-        outgoing: impl IntoIterator<Item = EdgeIndex>,
+impl<EI: EntityIndex> NodeData<EI> {
+    pub fn new(
+        incoming: impl IntoIterator<Item = EI>,
+        outgoing: impl IntoIterator<Item = EI>,
     ) -> Self {
         let incoming = incoming.into_iter();
         let outgoing = outgoing.into_iter();
@@ -46,13 +43,12 @@ impl<N> Node<N> {
             .collect();
 
         Self {
-            weight,
             edges,
             ports_incoming,
         }
     }
 
-    pub fn push_edge(&mut self, edge: EdgeIndex, direction: Direction) {
+    pub fn push_edge(&mut self, edge: EI, direction: Direction) {
         match direction {
             Direction::Incoming => {
                 self.edges.insert(self.ports_incoming as usize, edge);
@@ -64,7 +60,7 @@ impl<N> Node<N> {
         };
     }
 
-    pub fn insert_edge(&mut self, index: usize, edge: EdgeIndex, direction: Direction) {
+    pub fn insert_edge(&mut self, index: usize, edge: EI, direction: Direction) {
         match direction {
             Direction::Incoming => {
                 assert!(index < self.ports_incoming as usize);
@@ -79,7 +75,7 @@ impl<N> Node<N> {
     }
 
     #[inline(always)]
-    pub fn edges_with_ports(&self) -> impl Iterator<Item = (u16, Direction, EdgeIndex)> + '_ {
+    pub fn edges_with_ports(&self) -> impl Iterator<Item = (u16, Direction, EI)> + '_ {
         (0u16..).zip(&self.edges).map(|(index, edge)| {
             match index.checked_sub(self.ports_incoming) {
                 None => (index, Direction::Incoming, *edge),
@@ -88,14 +84,14 @@ impl<N> Node<N> {
         })
     }
 
-    pub fn edge_slice(&self, direction: Direction) -> &[EdgeIndex] {
+    pub fn edge_slice(&self, direction: Direction) -> &[EI] {
         match direction {
             Direction::Incoming => &self.edges[..self.ports_incoming as usize],
             Direction::Outgoing => &self.edges[self.ports_incoming as usize..],
         }
     }
 
-    pub fn edge_slice_mut(&mut self, direction: Direction) -> &mut [EdgeIndex] {
+    pub fn edge_slice_mut(&mut self, direction: Direction) -> &mut [EI] {
         match direction {
             Direction::Incoming => &mut self.edges[..self.ports_incoming as usize],
             Direction::Outgoing => &mut self.edges[self.ports_incoming as usize..],
@@ -103,13 +99,13 @@ impl<N> Node<N> {
     }
 }
 
-struct Edge<E> {
-    weight: E,
+#[derive(Debug, Clone)]
+struct EdgeData<NI> {
     ports: [u16; 2],
-    nodes: [Option<NodeIndex>; 2],
+    nodes: [Option<NI>; 2],
 }
 
-impl<N, E> Graph<N, E> {
+impl<NI: EntityIndex, EI: EntityIndex> Graph<NI, EI> {
     /// Create a new empty graph.
     pub fn new() -> Self {
         Self {
@@ -124,43 +120,27 @@ impl<N, E> Graph<N, E> {
         self.nodes.is_empty() && self.edges.is_empty()
     }
 
-    /// Add a node to the graph.
-    pub fn add_node(&mut self, weight: N) -> NodeIndex {
-        self.nodes.insert(Node::new(weight))
-    }
-
     /// Add a node to the graph with specified incoming and outgoing edges.
     ///
     /// ```
     /// # use portgraph::graph_test::Graph;
     /// # use portgraph::Direction;
-    /// let mut graph = Graph::<usize, usize>::new();
-    /// let edge0 = graph.add_edge(0);
-    /// let edge1 = graph.add_edge(1);
-    /// let edge2 = graph.add_edge(2);
-    /// let edge3 = graph.add_edge(3);
-    /// let node = graph.add_node_with_edges(7, [edge0, edge1], [edge2, edge3]);
+    /// let mut graph = Graph::new();
+    /// let edge0 = graph.add_edge();
+    /// let edge1 = graph.add_edge();
+    /// let edge2 = graph.add_edge();
+    /// let edge3 = graph.add_edge();
+    /// let node = graph.add_node([edge0, edge1], [edge2, edge3]).unwrap();
     /// assert_eq!(graph.node_edges(node, Direction::Incoming), [edge0, edge1]);
     /// assert_eq!(graph.node_edges(node, Direction::Outgoing), [edge2, edge3]);
     /// ```
-    pub fn add_node_with_edges(
+    pub fn add_node(
         &mut self,
-        weight: N,
-        incoming: impl IntoIterator<Item = EdgeIndex>,
-        outgoing: impl IntoIterator<Item = EdgeIndex>,
-    ) -> NodeIndex {
-        self.try_add_node_with_edges(weight, incoming, outgoing)
-            .unwrap()
-    }
-
-    pub fn try_add_node_with_edges(
-        &mut self,
-        weight: N,
-        incoming: impl IntoIterator<Item = EdgeIndex>,
-        outgoing: impl IntoIterator<Item = EdgeIndex>,
-    ) -> Result<NodeIndex, ConnectError> {
+        incoming: impl IntoIterator<Item = EI>,
+        outgoing: impl IntoIterator<Item = EI>,
+    ) -> Result<NI, ConnectError> {
         let node = self.nodes.next_index();
-        let node_data = Node::new_with_ports(weight, incoming, outgoing);
+        let node_data = NodeData::new(incoming, outgoing);
 
         let mut rollback = 0;
         let mut error = None;
@@ -195,20 +175,8 @@ impl<N, E> Graph<N, E> {
 
     /// Returns whether the graph has a node with a given index.
     #[inline]
-    pub fn has_node(&self, node: NodeIndex) -> bool {
+    pub fn has_node(&self, node: NI) -> bool {
         self.nodes.contains(node)
-    }
-
-    /// Returns a reference to the weight of the node with a given index.
-    #[inline]
-    pub fn node_weight(&self, a: NodeIndex) -> Option<&N> {
-        Some(&self.nodes.get(a)?.weight)
-    }
-
-    /// Returns a mutable reference to the weight of the node with a given index.
-    #[inline]
-    pub fn node_weight_mut(&mut self, a: NodeIndex) -> Option<&mut N> {
-        Some(&mut self.nodes.get_mut(a)?.weight)
     }
 
     /// Iterates over the node indices of the graph.
@@ -228,7 +196,7 @@ impl<N, E> Graph<N, E> {
     /// assert!(graph.node_indices().eq([n0, n2]));
     /// ```
     #[inline]
-    pub fn node_indices(&self) -> NodeIndices<N> {
+    pub fn node_indices(&self) -> NodeIndices<NI, EI> {
         NodeIndices(self.nodes.iter())
     }
 
@@ -238,33 +206,22 @@ impl<N, E> Graph<N, E> {
         self.nodes.len()
     }
 
-    pub fn add_edge(&mut self, weight: E) -> EdgeIndex {
-        self.edges.insert(Edge {
-            weight,
+    pub fn add_edge(&mut self) -> EI {
+        self.edges.insert(EdgeData {
             ports: [0; 2],
             nodes: [None; 2],
         })
     }
 
     /// Returns whether the graph has an edge with a given index.
-    pub fn has_edge(&self, e: EdgeIndex) -> bool {
+    pub fn has_edge(&self, e: EI) -> bool {
         self.edges.contains(e)
-    }
-
-    /// Returns a reference to the weight of the edge with a given index.
-    pub fn edge_weight(&self, e: EdgeIndex) -> Option<&E> {
-        Some(&self.edges.get(e)?.weight)
-    }
-
-    /// Returns a mutable reference to the weight of the edge with a given index.
-    pub fn edge_weight_mut(&mut self, e: EdgeIndex) -> Option<&mut E> {
-        Some(&mut self.edges.get_mut(e)?.weight)
     }
 
     /// Returns the endpoint of an edge in a given direction.
     ///
     /// `None` if the edge does not exist or has no endpoint in that direction.
-    pub fn edge_endpoint(&self, e: EdgeIndex, direction: Direction) -> Option<NodeIndex> {
+    pub fn edge_endpoint(&self, e: EI, direction: Direction) -> Option<NI> {
         self.edges.get(e)?.nodes[direction.index()]
     }
 
@@ -274,15 +231,11 @@ impl<N, E> Graph<N, E> {
         self.edges.len()
     }
 
-    pub fn connect_last(&mut self, node: NodeIndex, direction: Direction, edge: EdgeIndex) {
-        self.try_connect_last(node, direction, edge).unwrap();
-    }
-
-    pub fn try_connect_last(
+    pub fn connect_last(
         &mut self,
-        node: NodeIndex,
+        node: NI,
         direction: Direction,
-        edge: EdgeIndex,
+        edge: EI,
     ) -> Result<(), ConnectError> {
         let node_data = self.nodes.get_mut(node).ok_or(ConnectError::UnknownNode)?;
         let edge_data = self.edges.get_mut(edge).ok_or(ConnectError::UnknownEdge)?;
@@ -299,20 +252,10 @@ impl<N, E> Graph<N, E> {
 
     pub fn connect_at(
         &mut self,
-        node: NodeIndex,
+        node: NI,
         direction: Direction,
         index: usize,
-        edge: EdgeIndex,
-    ) {
-        self.try_connect_at(node, direction, index, edge).unwrap()
-    }
-
-    pub fn try_connect_at(
-        &mut self,
-        node: NodeIndex,
-        direction: Direction,
-        index: usize,
-        edge: EdgeIndex,
+        edge: EI,
     ) -> Result<(), ConnectError> {
         let node_data = self.nodes.get_mut(node).ok_or(ConnectError::UnknownNode)?;
         let edge_data = self.edges.get_mut(edge).ok_or(ConnectError::UnknownEdge)?;
@@ -326,10 +269,16 @@ impl<N, E> Graph<N, E> {
         node_data.insert_edge(index, edge, direction);
         edge_data.nodes[direction.index()] = Some(node);
         edge_data.ports[direction.index()] = index as u16;
+
+        // Shift the port indices of the edges that come after the newly inserted edge.
+        for other_edge in &node_data.edge_slice(direction)[index + 1..] {
+            self.edges[*other_edge].ports[direction.index()] += 1;
+        }
+
         Ok(())
     }
 
-    pub fn node_edges(&self, node: NodeIndex, direction: Direction) -> &[EdgeIndex] {
+    pub fn node_edges(&self, node: NI, direction: Direction) -> &[EI] {
         self.nodes
             .get(node)
             .map(move |node_data| node_data.edge_slice(direction))
@@ -337,12 +286,12 @@ impl<N, E> Graph<N, E> {
     }
 
     #[inline(always)]
-    pub fn node_inputs(&self, node: NodeIndex) -> &[EdgeIndex] {
+    pub fn node_inputs(&self, node: NI) -> &[EI] {
         self.node_edges(node, Direction::Incoming)
     }
 
     #[inline(always)]
-    pub fn node_outputs(&self, node: NodeIndex) -> &[EdgeIndex] {
+    pub fn node_outputs(&self, node: NI) -> &[EI] {
         self.node_edges(node, Direction::Outgoing)
     }
 
@@ -358,15 +307,15 @@ impl<N, E> Graph<N, E> {
         mut rekey_nodes: FN,
         mut rekey_edges: FE,
     ) where
-        FN: FnMut(&mut N, NodeIndex, NodeIndex),
-        FE: FnMut(&mut E, EdgeIndex, EdgeIndex),
+        FN: FnMut(NI, NI),
+        FE: FnMut(EI, EI),
     {
         // TODO: Reserve enough space in the slab so we do not need to reallocate
 
-        for (old_index, mut node) in other.nodes.into_iter() {
+        for (old_index, node) in other.nodes.into_iter() {
             let new_index = self.nodes.next_index();
 
-            rekey_nodes(&mut node.weight, old_index, new_index);
+            rekey_nodes(old_index, new_index);
 
             for (_, direction, edge) in node.edges_with_ports() {
                 other.edges[edge].nodes[direction.index()] = Some(new_index);
@@ -375,10 +324,10 @@ impl<N, E> Graph<N, E> {
             self.nodes.insert(node);
         }
 
-        for (old_index, mut edge) in other.edges.into_iter() {
+        for (old_index, edge) in other.edges.into_iter() {
             let new_index = self.edges.next_index();
 
-            rekey_edges(&mut edge.weight, old_index, new_index);
+            rekey_edges(old_index, new_index);
 
             for direction in Direction::ALL {
                 if let Some(node) = edge.nodes[direction.index()] {
@@ -413,11 +362,11 @@ impl<N, E> Graph<N, E> {
 
     pub fn compact<FN, FE>(&mut self, mut rekey_nodes: FN, mut rekey_edges: FE)
     where
-        FN: FnMut(&mut N, NodeIndex, NodeIndex),
-        FE: FnMut(&mut E, EdgeIndex, EdgeIndex),
+        FN: FnMut(NI, NI),
+        FE: FnMut(EI, EI),
     {
         self.nodes.compact(|node_data, old_index, new_index| {
-            rekey_nodes(&mut node_data.weight, old_index, new_index);
+            rekey_nodes(old_index, new_index);
 
             for (_, direction, edge) in node_data.edges_with_ports() {
                 self.edges[edge].nodes[direction.index()] = Some(new_index);
@@ -425,7 +374,7 @@ impl<N, E> Graph<N, E> {
         });
 
         self.edges.compact(|edge_data, old_index, new_index| {
-            rekey_edges(&mut edge_data.weight, old_index, new_index);
+            rekey_edges(old_index, new_index);
 
             for direction in Direction::ALL {
                 if let Some(node) = edge_data.nodes[direction.index()] {
@@ -437,17 +386,17 @@ impl<N, E> Graph<N, E> {
     }
 }
 
-impl<N, E> Default for Graph<N, E> {
+impl<NI: EntityIndex, EI: EntityIndex> Default for Graph<NI, EI> {
     fn default() -> Self {
         Self::new()
     }
 }
 
 /// Iterator created by [Graph::node_indices].
-pub struct NodeIndices<'a, N: 'a>(slab::Iter<'a, NodeIndex, Node<N>>);
+pub struct NodeIndices<'a, NI, EI: Default>(slab::Iter<'a, NI, NodeData<EI>>);
 
-impl<'a, N> Iterator for NodeIndices<'a, N> {
-    type Item = NodeIndex;
+impl<'a, NI: EntityIndex, EI: EntityIndex> Iterator for NodeIndices<'a, NI, EI> {
+    type Item = NI;
 
     fn next(&mut self) -> Option<Self::Item> {
         Some(self.0.next()?.0)
@@ -458,14 +407,14 @@ impl<'a, N> Iterator for NodeIndices<'a, N> {
     }
 }
 
-impl<'a, N> ExactSizeIterator for NodeIndices<'a, N> {}
-impl<'a, N> FusedIterator for NodeIndices<'a, N> {}
+impl<'a, NI: EntityIndex, EI: EntityIndex> ExactSizeIterator for NodeIndices<'a, NI, EI> {}
+impl<'a, NI: EntityIndex, EI: EntityIndex> FusedIterator for NodeIndices<'a, NI, EI> {}
 
 /// Iterator created by [Graph::edge_indices].
-pub struct EdgeIndices<'a, E: 'a>(slab::Iter<'a, EdgeIndex, Edge<E>>);
+pub struct EdgeIndices<'a, NI, EI>(slab::Iter<'a, EI, EdgeData<NI>>);
 
-impl<'a, E> Iterator for EdgeIndices<'a, E> {
-    type Item = EdgeIndex;
+impl<'a, NI, EI: EntityIndex> Iterator for EdgeIndices<'a, NI, EI> {
+    type Item = EI;
 
     fn next(&mut self) -> Option<Self::Item> {
         Some(self.0.next()?.0)
@@ -476,8 +425,8 @@ impl<'a, E> Iterator for EdgeIndices<'a, E> {
     }
 }
 
-impl<'a, N> ExactSizeIterator for EdgeIndices<'a, N> {}
-impl<'a, N> FusedIterator for EdgeIndices<'a, N> {}
+impl<'a, NI, EI: EntityIndex> ExactSizeIterator for EdgeIndices<'a, NI, EI> {}
+impl<'a, NI, EI: EntityIndex> FusedIterator for EdgeIndices<'a, NI, EI> {}
 
 /// Error returned by [Graph::connect_last] and similar methods.
 #[derive(Debug, Error)]
@@ -490,36 +439,4 @@ pub enum ConnectError {
     AlreadyConnected,
     #[error("port index is out of bounds")]
     OutOfBounds,
-}
-
-impl<N, E> std::ops::Index<NodeIndex> for Graph<N, E> {
-    type Output = N;
-
-    #[inline(always)]
-    fn index(&self, index: NodeIndex) -> &Self::Output {
-        &self.nodes.get(index).unwrap().weight
-    }
-}
-
-impl<N, E> std::ops::IndexMut<NodeIndex> for Graph<N, E> {
-    #[inline(always)]
-    fn index_mut(&mut self, index: NodeIndex) -> &mut Self::Output {
-        &mut self.nodes.get_mut(index).unwrap().weight
-    }
-}
-
-impl<N, E> std::ops::Index<EdgeIndex> for Graph<N, E> {
-    type Output = E;
-
-    #[inline(always)]
-    fn index(&self, index: EdgeIndex) -> &Self::Output {
-        &self.edges.get(index).unwrap().weight
-    }
-}
-
-impl<N, E> std::ops::IndexMut<EdgeIndex> for Graph<N, E> {
-    #[inline(always)]
-    fn index_mut(&mut self, index: EdgeIndex) -> &mut Self::Output {
-        &mut self.edges.get_mut(index).unwrap().weight
-    }
 }
