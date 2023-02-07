@@ -1,4 +1,4 @@
-use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
+use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, PlotConfiguration, AxisScale};
 use portgraph::graph_test;
 use portgraph::{graph::Graph, Direction, PortGraph};
 
@@ -135,6 +135,7 @@ fn remove_all_unordered(graph: &mut Graph<usize, usize>) {
 
 fn bench_make_portgraph(c: &mut Criterion) {
     let mut g = c.benchmark_group("graph creation");
+    g.plot_config(PlotConfiguration::default().summary_scale(AxisScale::Logarithmic));
 
     for size in [100, 10_000, 1_000_000] {
         g.bench_with_input(
@@ -158,6 +159,7 @@ fn bench_make_portgraph(c: &mut Criterion) {
 
 fn bench_clone_portgraph(c: &mut Criterion) {
     let mut g = c.benchmark_group("graph cloning");
+    g.plot_config(PlotConfiguration::default().summary_scale(AxisScale::Logarithmic));
 
     for size in [100, 10_000, 1_000_000] {
         g.bench_with_input(
@@ -182,6 +184,7 @@ fn bench_clone_portgraph(c: &mut Criterion) {
 
 fn bench_remove_unordered(c: &mut Criterion) {
     let mut g = c.benchmark_group("remove vertices unordered");
+    g.plot_config(PlotConfiguration::default().summary_scale(AxisScale::Logarithmic));
 
     for size in [0, 100, 10_000] {
         g.bench_with_input(
