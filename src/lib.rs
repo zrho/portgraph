@@ -6,8 +6,8 @@
 
 pub mod graph;
 pub mod graph_test;
+pub mod layout;
 pub mod memory;
-pub mod nested;
 pub mod undirected;
 pub use undirected::PortGraph;
 

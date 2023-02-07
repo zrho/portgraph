@@ -5,6 +5,7 @@ use std::{
 
 use super::EntityIndex;
 
+#[derive(Debug, Clone)]
 pub struct SecondaryMap<K, V> {
     values: Vec<V>,
     default: V,
@@ -36,6 +37,14 @@ impl<K: EntityIndex, V: Clone> SecondaryMap<K, V> {
 
     pub fn resize(&mut self, new_len: usize) {
         self.values.resize(new_len, self.default.clone());
+    }
+
+    pub fn get(&self, index: K) -> Option<&V> {
+        self.values.get(index.index())
+    }
+
+    pub fn get_mut(&mut self, index: K) -> Option<&mut V> {
+        self.values.get_mut(index.index())
     }
 }
 
