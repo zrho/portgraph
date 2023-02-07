@@ -1,17 +1,16 @@
-use std::iter::FusedIterator;
-
+use std::ops::Range;
 use thiserror::Error;
 use tinyvec::TinyVec;
 
 use crate::{
-    memory::{slab, EntityIndex, Slab},
+    memory::{map::SecondaryMap, EntityIndex},
     Direction,
 };
 
 #[derive(Debug, Clone)]
 pub struct Graph<NI, EI: Default> {
-    nodes: Slab<NI, NodeData<EI>>,
-    edges: Slab<EI, EdgeData<NI>>,
+    nodes: SecondaryMap<NI, NodeData<EI>>,
+    edges: SecondaryMap<EI, EdgeData<NI>>,
 }
 
 const EDGE_LIST_SIZE: usize = 7;
@@ -21,31 +20,37 @@ const EDGE_LIST_SIZE: usize = 7;
 // as `smallvec` have `usize` large capacity, which would be a big waste of
 // space. Perhaps implement the few aspects of `tinyvec` that we need here ourselves?
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 struct NodeData<EI: Default> {
     ports_incoming: u16,
     edges: TinyVec<[EI; EDGE_LIST_SIZE]>,
 }
 
 impl<EI: EntityIndex> NodeData<EI> {
-    pub fn new(
-        incoming: impl IntoIterator<Item = EI>,
-        outgoing: impl IntoIterator<Item = EI>,
-    ) -> Self {
-        let incoming = incoming.into_iter();
-        let outgoing = outgoing.into_iter();
+    pub fn new() -> Self {
+        Self::default()
+    }
 
-        let mut ports_incoming: u16 = 0;
+    pub fn add_incoming_ports(&mut self, ports: impl IntoIterator<Item = EI>) -> Range<usize> {
+        let ports = ports.into_iter();
+        let range_start = self.ports_incoming as usize;
+        let mut range_end = range_start;
 
-        let edges = incoming
-            .inspect(|_| ports_incoming += 1)
-            .chain(outgoing)
-            .collect();
+        self.edges
+            .splice(range_start..range_start, ports.inspect(|_| range_end += 1));
 
-        Self {
-            edges,
-            ports_incoming,
-        }
+        self.ports_incoming = range_end as u16;
+
+        range_start..range_end
+    }
+
+    pub fn add_outgoing_ports(&mut self, ports: impl IntoIterator<Item = EI>) -> Range<usize> {
+        let ports = ports.into_iter();
+        let min_size = ports.size_hint();
+
+        let range_start = self.edges.len();
+        self.edges.extend(ports);
+        range_start..self.edges.len()
     }
 
     pub fn push_edge(&mut self, edge: EI, direction: Direction) {
@@ -99,7 +104,7 @@ impl<EI: EntityIndex> NodeData<EI> {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 struct EdgeData<NI> {
     ports: [u16; 2],
     nodes: [Option<NI>; 2],
@@ -109,126 +114,58 @@ impl<NI: EntityIndex, EI: EntityIndex> Graph<NI, EI> {
     /// Create a new empty graph.
     pub fn new() -> Self {
         Self {
-            nodes: Slab::new(),
-            edges: Slab::new(),
+            nodes: SecondaryMap::new(),
+            edges: SecondaryMap::new(),
         }
     }
 
-    /// Whether the graph has neither nodes nor edges.
-    #[inline]
-    pub fn is_empty(&self) -> bool {
-        self.nodes.is_empty() && self.edges.is_empty()
-    }
-
-    /// Add a node to the graph with specified incoming and outgoing edges.
-    ///
-    /// ```
-    /// # use portgraph::graph_test::Graph;
-    /// # use portgraph::Direction;
-    /// let mut graph = Graph::new();
-    /// let edge0 = graph.add_edge();
-    /// let edge1 = graph.add_edge();
-    /// let edge2 = graph.add_edge();
-    /// let edge3 = graph.add_edge();
-    /// let node = graph.add_node([edge0, edge1], [edge2, edge3]).unwrap();
-    /// assert_eq!(graph.node_edges(node, Direction::Incoming), [edge0, edge1]);
-    /// assert_eq!(graph.node_edges(node, Direction::Outgoing), [edge2, edge3]);
-    /// ```
-    pub fn add_node(
+    pub fn add_node_ports(
         &mut self,
+        node: NI,
         incoming: impl IntoIterator<Item = EI>,
         outgoing: impl IntoIterator<Item = EI>,
-    ) -> Result<NI, ConnectError> {
-        let node = self.nodes.next_index();
-        let node_data = NodeData::new(incoming, outgoing);
+    ) -> Result<(), ConnectError> {
+        let node_data = &mut self.nodes[node];
 
-        let mut rollback = 0;
-        let mut error = None;
+        // We collect the iterators so that we can check if the edges are
+        // already connected before inserting them into the array. For small
+        // numbers of ports this will remain fully on the stack.
+        let incoming: TinyVec<[EI; 8]> = incoming.into_iter().collect();
+        let outgoing: TinyVec<[EI; 8]> = outgoing.into_iter().collect();
 
-        for (port, direction, edge) in node_data.edges_with_ports() {
-            let Some(edge_data) = self.edges.get_mut(edge) else {
-                error = Some(ConnectError::UnknownEdge);
-                break;
-            };
-
-            if edge_data.nodes[direction.index()].is_some() {
-                error = Some(ConnectError::AlreadyConnected);
-                break;
+        // Ensure that the edges are not already connected
+        for (edges, direction) in [&incoming, &outgoing].into_iter().zip(Direction::ALL) {
+            for edge in edges {
+                if self.edges[*edge].nodes[direction.index()].is_some() {
+                    return Err(ConnectError::AlreadyConnected);
+                }
             }
-
-            edge_data.nodes[direction.index()] = Some(node);
-            edge_data.ports[direction.index()] = port;
-            rollback += 1;
         }
 
-        if let Some(error) = error {
-            for (_, direction, edge) in node_data.edges_with_ports().take(rollback) {
-                let edge_data = &mut self.edges[edge];
-                edge_data.nodes[direction.index()] = None;
-            }
+        node_data.edges.reserve(incoming.len() + outgoing.len());
+        let incoming_range = node_data.add_incoming_ports(incoming.iter().copied());
+        let outgoing_range = node_data.add_outgoing_ports(outgoing.iter().copied());
 
-            return Err(error);
+        for (i, edge) in node_data.edges[incoming_range.clone()].iter().enumerate() {
+            let edge_data = &mut self.edges[*edge];
+            edge_data.nodes[0] = Some(node);
+            edge_data.ports[0] = (i + incoming_range.start) as u16;
         }
 
-        Ok(self.nodes.insert(node_data))
-    }
+        for (i, edge) in node_data.edges[outgoing_range.clone()].iter().enumerate() {
+            let edge_data = &mut self.edges[*edge];
+            edge_data.nodes[1] = Some(node);
+            edge_data.ports[1] = (i + outgoing_range.start) as u16;
+        }
 
-    /// Returns whether the graph has a node with a given index.
-    #[inline]
-    pub fn has_node(&self, node: NI) -> bool {
-        self.nodes.contains(node)
-    }
-
-    /// Iterates over the node indices of the graph.
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// # use portgraph::graph::{Graph, Direction};
-    /// let mut graph = Graph::<i8, i8>::new();
-    ///
-    /// let n0 = graph.add_node(0);
-    /// let n1 = graph.add_node(1);
-    /// let n2 = graph.add_node(2);
-    ///
-    /// graph.remove_node(n1);
-    ///
-    /// assert!(graph.node_indices().eq([n0, n2]));
-    /// ```
-    #[inline]
-    pub fn node_indices(&self) -> NodeIndices<NI, EI> {
-        NodeIndices(self.nodes.iter())
-    }
-
-    /// Returns the number of nodes in the graph.
-    #[inline]
-    pub fn node_count(&self) -> usize {
-        self.nodes.len()
-    }
-
-    pub fn add_edge(&mut self) -> EI {
-        self.edges.insert(EdgeData {
-            ports: [0; 2],
-            nodes: [None; 2],
-        })
-    }
-
-    /// Returns whether the graph has an edge with a given index.
-    pub fn has_edge(&self, e: EI) -> bool {
-        self.edges.contains(e)
+        Ok(())
     }
 
     /// Returns the endpoint of an edge in a given direction.
     ///
     /// `None` if the edge does not exist or has no endpoint in that direction.
-    pub fn edge_endpoint(&self, e: EI, direction: Direction) -> Option<NI> {
-        self.edges.get(e)?.nodes[direction.index()]
-    }
-
-    /// Returns the number of edges in the graph.
-    #[inline]
-    pub fn edge_count(&self) -> usize {
-        self.edges.len()
+    pub fn edge_endpoint(&self, edge: EI, direction: Direction) -> Option<NI> {
+        self.edges[edge].nodes[direction.index()]
     }
 
     pub fn connect_last(
@@ -237,8 +174,8 @@ impl<NI: EntityIndex, EI: EntityIndex> Graph<NI, EI> {
         direction: Direction,
         edge: EI,
     ) -> Result<(), ConnectError> {
-        let node_data = self.nodes.get_mut(node).ok_or(ConnectError::UnknownNode)?;
-        let edge_data = self.edges.get_mut(edge).ok_or(ConnectError::UnknownEdge)?;
+        let node_data = &mut self.nodes[node];
+        let edge_data = &mut self.edges[edge];
 
         if edge_data.nodes[direction.index()].is_some() {
             return Err(ConnectError::AlreadyConnected);
@@ -257,8 +194,8 @@ impl<NI: EntityIndex, EI: EntityIndex> Graph<NI, EI> {
         index: usize,
         edge: EI,
     ) -> Result<(), ConnectError> {
-        let node_data = self.nodes.get_mut(node).ok_or(ConnectError::UnknownNode)?;
-        let edge_data = self.edges.get_mut(edge).ok_or(ConnectError::UnknownEdge)?;
+        let node_data = &mut self.nodes[node];
+        let edge_data = &mut self.edges[edge];
 
         if edge_data.nodes[direction.index()].is_some() {
             return Err(ConnectError::AlreadyConnected);
@@ -295,56 +232,49 @@ impl<NI: EntityIndex, EI: EntityIndex> Graph<NI, EI> {
         self.node_edges(node, Direction::Outgoing)
     }
 
-    /// Insert a graph into this graph.
+    /// Changes the key of a node.
     ///
-    /// Calls rekey functions for the nodes and then for the edges in the inserted graph.
-    ///
-    /// [Graph::merge_edges] can be used along dangling edges to connect the inserted
-    /// subgraph with the rest of the graph
-    pub fn insert_graph<FN, FE>(
-        &mut self,
-        mut other: Self,
-        mut rekey_nodes: FN,
-        mut rekey_edges: FE,
-    ) where
-        FN: FnMut(NI, NI),
-        FE: FnMut(EI, EI),
-    {
-        // TODO: Reserve enough space in the slab so we do not need to reallocate
-
-        for (old_index, node) in other.nodes.into_iter() {
-            let new_index = self.nodes.next_index();
-
-            rekey_nodes(old_index, new_index);
-
-            for (_, direction, edge) in node.edges_with_ports() {
-                other.edges[edge].nodes[direction.index()] = Some(new_index);
-            }
-
-            self.nodes.insert(node);
-        }
-
-        for (old_index, edge) in other.edges.into_iter() {
-            let new_index = self.edges.next_index();
-
-            rekey_edges(old_index, new_index);
-
-            for direction in Direction::ALL {
-                if let Some(node) = edge.nodes[direction.index()] {
-                    let port = edge.ports[direction.index()] as usize;
-                    self.nodes[node].edge_slice_mut(direction)[port] = new_index;
+    /// It is assumed but not checked that `new_index` is currently empty.
+    /// Returns whether the node at `old_index` was empty.
+    pub fn rekey_node(&mut self, old_index: NI, new_index: NI) -> bool {
+        match self.nodes.rekey(old_index, new_index) {
+            Some(node_data) => {
+                for (_, direction, edge) in node_data.edges_with_ports() {
+                    self.edges[edge].nodes[direction.index()] = Some(new_index);
                 }
-            }
 
-            self.edges.insert(edge);
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// Changes the key of an edge.
+    ///
+    /// It is assumed but not checked that `new_index` is currently empty.
+    /// Returns whether the edge at `old_index` was empty.
+    pub fn rekey_edge(&mut self, old_index: EI, new_index: EI) -> bool {
+        match self.edges.rekey(old_index, new_index) {
+            Some(edge_data) => {
+                for direction in Direction::ALL {
+                    if let Some(node) = edge_data.nodes[direction.index()] {
+                        let port = edge_data.ports[direction.index()] as usize;
+                        let node_data = &mut self.nodes[node];
+                        node_data.edge_slice_mut(direction)[port] = new_index;
+                    }
+                }
+
+                true
+            }
+            None => false,
         }
     }
 
     /// Create a new empty graph with preallocated capacities for nodes and edges.
     pub fn with_capacity(nodes: usize, edges: usize) -> Self {
         Self {
-            nodes: Slab::with_capacity(nodes),
-            edges: Slab::with_capacity(edges),
+            nodes: SecondaryMap::with_capacity(nodes),
+            edges: SecondaryMap::with_capacity(edges),
         }
     }
 
@@ -359,31 +289,6 @@ impl<NI: EntityIndex, EI: EntityIndex> Graph<NI, EI> {
             node_data.edges.shrink_to_fit();
         }
     }
-
-    pub fn compact<FN, FE>(&mut self, mut rekey_nodes: FN, mut rekey_edges: FE)
-    where
-        FN: FnMut(NI, NI),
-        FE: FnMut(EI, EI),
-    {
-        self.nodes.compact(|node_data, old_index, new_index| {
-            rekey_nodes(old_index, new_index);
-
-            for (_, direction, edge) in node_data.edges_with_ports() {
-                self.edges[edge].nodes[direction.index()] = Some(new_index);
-            }
-        });
-
-        self.edges.compact(|edge_data, old_index, new_index| {
-            rekey_edges(old_index, new_index);
-
-            for direction in Direction::ALL {
-                if let Some(node) = edge_data.nodes[direction.index()] {
-                    let port = edge_data.ports[direction.index()] as usize;
-                    self.nodes[node].edge_slice_mut(direction)[port] = new_index;
-                }
-            }
-        });
-    }
 }
 
 impl<NI: EntityIndex, EI: EntityIndex> Default for Graph<NI, EI> {
@@ -392,49 +297,9 @@ impl<NI: EntityIndex, EI: EntityIndex> Default for Graph<NI, EI> {
     }
 }
 
-/// Iterator created by [Graph::node_indices].
-pub struct NodeIndices<'a, NI, EI: Default>(slab::Iter<'a, NI, NodeData<EI>>);
-
-impl<'a, NI: EntityIndex, EI: EntityIndex> Iterator for NodeIndices<'a, NI, EI> {
-    type Item = NI;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        Some(self.0.next()?.0)
-    }
-
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        self.0.size_hint()
-    }
-}
-
-impl<'a, NI: EntityIndex, EI: EntityIndex> ExactSizeIterator for NodeIndices<'a, NI, EI> {}
-impl<'a, NI: EntityIndex, EI: EntityIndex> FusedIterator for NodeIndices<'a, NI, EI> {}
-
-/// Iterator created by [Graph::edge_indices].
-pub struct EdgeIndices<'a, NI, EI>(slab::Iter<'a, EI, EdgeData<NI>>);
-
-impl<'a, NI, EI: EntityIndex> Iterator for EdgeIndices<'a, NI, EI> {
-    type Item = EI;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        Some(self.0.next()?.0)
-    }
-
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        self.0.size_hint()
-    }
-}
-
-impl<'a, NI, EI: EntityIndex> ExactSizeIterator for EdgeIndices<'a, NI, EI> {}
-impl<'a, NI, EI: EntityIndex> FusedIterator for EdgeIndices<'a, NI, EI> {}
-
 /// Error returned by [Graph::connect_last] and similar methods.
 #[derive(Debug, Error)]
 pub enum ConnectError {
-    #[error("unknown node")]
-    UnknownNode,
-    #[error("unknown edge")]
-    UnknownEdge,
     #[error("edge is already connected")]
     AlreadyConnected,
     #[error("port index is out of bounds")]

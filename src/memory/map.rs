@@ -67,9 +67,33 @@ impl<K: EntityIndex, V: Clone> SecondaryMap<K, V> {
         ))
     }
 
+    /// Changes the key of an entry.
+    ///
+    /// It is assumed but not checked that the entry at `old_index` was empty.
+    /// If the entry at `new_index` was not definitely empty by being beyond the
+    /// bounds of the map, a mutable reference to the value is returned.
     #[inline]
-    pub fn swap(&mut self, old_index: K, new_index: K) {
-        self.values.swap(old_index.index(), new_index.index());
+    pub fn rekey(&mut self, old_index: K, new_index: K) -> Option<&mut V> {
+        if old_index.index() >= self.values.len() {
+            if let Some(value) = self.values.get_mut(new_index.index()) {
+                *value = self.default.clone()
+            }
+
+            None
+        } else {
+            let value = replace(&mut self.values[old_index.index()], self.default.clone());
+            let entry = &mut self[new_index];
+            *entry = value;
+            Some(entry)
+        }
+    }
+
+    #[inline]
+    pub fn iter_mut(&mut self) -> impl Iterator<Item = (K, &mut V)> + '_ {
+        self.values
+            .iter_mut()
+            .enumerate()
+            .map(|(i, value)| (EntityIndex::new(i), value))
     }
 }
 
