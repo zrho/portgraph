@@ -5,6 +5,7 @@
 // pub mod toposort;
 
 pub mod graph;
+pub mod graph_test;
 pub mod memory;
 pub mod nested;
 pub mod undirected;
@@ -39,12 +40,6 @@ impl Direction {
             Direction::Outgoing => Direction::Incoming,
         }
     }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-enum Relative<T> {
-    Before(T),
-    After(T),
 }
 
 make_entity! {

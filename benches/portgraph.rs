@@ -1,18 +1,41 @@
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
+use portgraph::graph_test;
 use portgraph::{graph::Graph, Direction, PortGraph};
 
 fn make_line_graph(size: usize) -> Graph<usize, (usize, usize, usize)> {
     let mut graph = Graph::with_capacity(size, size * 2);
-    let edge = graph.add_edge((0, 0, 1));
-    let mut prev_node = graph.add_node_with_edges(0, [], [edge]).unwrap();
+    let edge0 = graph.add_edge((0, 0, 1));
+    let edge1 = graph.add_edge((0, 0, 1));
+    let mut prev_node = graph.add_node_with_edges(0, [], [edge0, edge1]).unwrap();
 
     for i in 1..size {
-        let edge_in = graph
-            .node_edges(prev_node, Direction::Outgoing)
-            .next()
+        let mut node_edges = graph.node_edges(prev_node, Direction::Outgoing);
+        let edge_in0 = node_edges.next().unwrap();
+        let edge_in1 = node_edges.next().unwrap();
+        let edge_out0 = graph.add_edge((i, i, i + 1));
+        let edge_out1 = graph.add_edge((i, i, i + 1));
+        let node = graph
+            .add_node_with_edges(i, [edge_in0, edge_in1], [edge_out0, edge_out1])
             .unwrap();
-        let edge_out = graph.add_edge((i, i, i + 1));
-        let node = graph.add_node_with_edges(i, [edge_in], [edge_out]).unwrap();
+        prev_node = node;
+    }
+
+    graph
+}
+
+fn make_line_graph_test(size: usize) -> graph_test::Graph<usize, (usize, usize, usize)> {
+    let mut graph = graph_test::Graph::with_capacity(size, size * 2);
+    let edge0 = graph.add_edge((0, 0, 1));
+    let edge1 = graph.add_edge((0, 0, 1));
+    let mut prev_node = graph.add_node_with_edges(0, [], [edge0, edge1]);
+
+    for i in 1..size {
+        let node_edges = graph.node_edges(prev_node, Direction::Outgoing);
+        let edge_in0 = node_edges[0];
+        let edge_in1 = node_edges[1];
+        let edge_out0 = graph.add_edge((i, i, i + 1));
+        let edge_out1 = graph.add_edge((i, i, i + 1));
+        let node = graph.add_node_with_edges(i, [edge_in0, edge_in1], [edge_out0, edge_out1]);
         prev_node = node;
     }
 
@@ -89,7 +112,7 @@ fn make_two_track_dag(layers: usize) -> Graph<usize, usize> {
 /// Remove one every five nodes from the graph.
 fn remove_every_five(graph: &mut Graph<usize, usize>) {
     let mut to_remove = Vec::new();
-    for (i,v) in graph.node_indices().enumerate() {
+    for (i, v) in graph.node_indices().enumerate() {
         if i % 5 == 0 {
             to_remove.push(v);
         }
@@ -113,7 +136,7 @@ fn remove_all_unordered(graph: &mut Graph<usize, usize>) {
 fn bench_make_portgraph(c: &mut Criterion) {
     let mut g = c.benchmark_group("graph creation");
 
-    for size in [0, 100, 10_000, 1_000_000] {
+    for size in [100, 10_000, 1_000_000] {
         g.bench_with_input(
             BenchmarkId::new("make_line_graph", size),
             &size,
@@ -124,6 +147,11 @@ fn bench_make_portgraph(c: &mut Criterion) {
             &size,
             |b, size| b.iter(|| black_box(make_line_hypergraph(*size))),
         );
+        g.bench_with_input(
+            BenchmarkId::new("make_line_graph_test", size),
+            &size,
+            |b, size| b.iter(|| black_box(make_line_graph_test(*size))),
+        );
     }
     g.finish();
 }
@@ -131,7 +159,7 @@ fn bench_make_portgraph(c: &mut Criterion) {
 fn bench_clone_portgraph(c: &mut Criterion) {
     let mut g = c.benchmark_group("graph cloning");
 
-    for size in [0, 100, 10_000, 1_000_000] {
+    for size in [100, 10_000, 1_000_000] {
         g.bench_with_input(
             BenchmarkId::new("clone_line_graph", size),
             &size,
@@ -168,5 +196,10 @@ fn bench_remove_unordered(c: &mut Criterion) {
     g.finish();
 }
 
-criterion_group!(benches, bench_make_portgraph, bench_clone_portgraph, bench_remove_unordered);
+criterion_group!(
+    benches,
+    bench_make_portgraph,
+    bench_clone_portgraph,
+    bench_remove_unordered
+);
 criterion_main!(benches);

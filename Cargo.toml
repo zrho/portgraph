@@ -14,6 +14,7 @@ thiserror = "1.0.28"
 pyo3 = { version = "0.16.5", optional = true, features = [
     "multiple-pymethods",
 ] }
+tinyvec = { version = "1.6.0", features = ["alloc", "rustc_1_40"] }
 
 [features]
 pyo3 = ["dep:pyo3"]

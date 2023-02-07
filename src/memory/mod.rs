@@ -43,6 +43,12 @@ macro_rules! make_entity {
             }
         }
 
+        impl ::std::default::Default for $name {
+            fn default() -> Self {
+                Self(::std::num::NonZeroU32::new(u32::MAX).unwrap())
+            }
+        }
+
     )*};
 }
 
