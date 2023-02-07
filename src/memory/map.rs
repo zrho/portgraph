@@ -12,7 +12,7 @@ pub struct SecondaryMap<K, V> {
     phantom: PhantomData<K>,
 }
 
-impl<K: EntityIndex, V: Clone> SecondaryMap<K, V> {
+impl<K, V> SecondaryMap<K, V> {
     pub fn new() -> Self
     where
         V: Default,
@@ -34,7 +34,9 @@ impl<K: EntityIndex, V: Clone> SecondaryMap<K, V> {
             phantom: PhantomData,
         }
     }
+}
 
+impl<K: EntityIndex, V: Clone> SecondaryMap<K, V> {
     pub fn resize(&mut self, new_len: usize) {
         self.values.resize(new_len, self.default.clone());
     }
@@ -48,7 +50,7 @@ impl<K: EntityIndex, V: Clone> SecondaryMap<K, V> {
     }
 }
 
-impl<K: EntityIndex, V: Default + Clone> Default for SecondaryMap<K, V> {
+impl<K, V: Default + Clone> Default for SecondaryMap<K, V> {
     fn default() -> Self {
         Self::new()
     }
