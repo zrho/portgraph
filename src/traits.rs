@@ -2,6 +2,7 @@ use std::collections::BTreeMap;
 
 use thiserror::Error;
 
+use crate::layout::Layout;
 pub use crate::{Direction, EdgeIndex, NodeIndex, PortIndex};
 
 /// Map of updated node indices after a graph operation.
@@ -548,6 +549,15 @@ pub trait WeightedPortGraph<N, E = (), P = ()>: BasePortGraph {
     fn merge_edges(&mut self, from: EdgeIndex, into: EdgeIndex) -> Result<E, MergeEdgesError>;
 }
 
+/// Access the node layout of a graph.
+trait IntoLayout {
+    /// Get a reference to the node layout of the graph.
+    fn layout(&self) -> &Layout<NodeIndex>;
+
+    /// Get a mutable reference to the node layout of the graph.
+    fn layout_mut(&mut self) -> &mut Layout<NodeIndex>;
+}
+
 /// Error returned by [Graph::connect] and similar methods.
 #[derive(Debug, Error)]
 pub enum ConnectError {
@@ -561,6 +571,8 @@ pub enum ConnectError {
     AlreadyConnected,
     #[error("can not connect edge relative to itself")]
     SameEdge,
+    #[error("port index is out of bounds")]
+    OutOfBounds,
 }
 
 /// Error returned by [Graph::merge_edges].

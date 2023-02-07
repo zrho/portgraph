@@ -1,10 +1,9 @@
 use std::ops::Range;
-use thiserror::Error;
 use tinyvec::TinyVec;
 
 use crate::{
     memory::{map::SecondaryMap, EntityIndex},
-    Direction,
+    Direction, traits::ConnectError,
 };
 
 #[derive(Debug, Clone)]
@@ -295,13 +294,4 @@ impl<NI: EntityIndex, EI: EntityIndex> Default for Graph<NI, EI> {
     fn default() -> Self {
         Self::new()
     }
-}
-
-/// Error returned by [Graph::connect_last] and similar methods.
-#[derive(Debug, Error)]
-pub enum ConnectError {
-    #[error("edge is already connected")]
-    AlreadyConnected,
-    #[error("port index is out of bounds")]
-    OutOfBounds,
 }
