@@ -19,10 +19,33 @@ pub struct Node<N> {
 }
 
 impl<N> Node<N> {
+    /// Update the edge ids after reindexing.
     fn relink(&mut self, edge_map: &EdgeMap) {
         for i in 0..=1 {
             self.edges[i] = self.edges[i].and_then(|edge| edge_map.get(&edge)).copied();
         }
+    }
+}
+
+/// The graph's hierarchy information
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HierarchyNode {
+    /// First parent in the hierarchical graph.
+    parent: Option<NodeIndex>,
+
+    /// Circular list of siblings in the hierarchical graph.
+    siblings: [NodeIndex; 2],
+
+    /// First child in the hierarchical graph.
+    child: Option<NodeIndex>,
+}
+
+impl HierarchyNode {
+    /// Update the node ids after reindexing.
+    fn relink(&mut self, node_map: &NodeMap) {
+        self.parent = self.parent.map(|p| node_map[&p]);
+        self.siblings = [node_map[&self.siblings[0]], node_map[&self.siblings[1]]];
+        self.child = self.child.map(|p| node_map[&p]);
     }
 }
 
@@ -57,6 +80,7 @@ type EdgeMap = BTreeMap<EdgeIndex, EdgeIndex>;
 #[derive(Clone, PartialEq, Eq)]
 pub struct Graph<N, E> {
     nodes: Slab<NodeIndex, Node<N>>,
+    hierarchy_nodes: Slab<NodeIndex, HierarchyNode>,
     edges: Slab<EdgeIndex, Edge<E>>,
 }
 
@@ -65,6 +89,8 @@ impl<N: Debug, E: Debug> Debug for Graph<N, E> {
         f.debug_struct("Graph")
             .field("nodes", &self.nodes)
             .field("edges", &self.edges)
+            .field("num nodes", &self.nodes.len())
+            .field("num edges", &self.edges.len())
             .finish()
     }
 }
@@ -85,16 +111,24 @@ impl<N, E> Graph<N, E> {
     pub fn with_capacity(nodes: usize, edges: usize) -> Self {
         Self {
             nodes: Slab::with_capacity(nodes),
+            hierarchy_nodes: Slab::with_capacity(nodes),
             edges: Slab::with_capacity(edges),
         }
     }
 
     /// Add a node to the graph.
     pub fn add_node(&mut self, weight: N) -> NodeIndex {
-        self.nodes.insert(Node {
+        let ix = self.nodes.insert(Node {
             weight,
             edges: [None; 2],
-        })
+        });
+        let h_ix = self.hierarchy_nodes.insert(HierarchyNode {
+            parent: None,
+            siblings: [ix, ix],
+            child: None,
+        });
+        debug_assert_eq!(ix, h_ix);
+        ix
     }
 
     /// Add a node to the graph with specified incoming and outgoing edges.
@@ -156,6 +190,7 @@ impl<N, E> Graph<N, E> {
     /// ```
     pub fn remove_node(&mut self, node_index: NodeIndex) -> Option<N> {
         let node = self.nodes.remove(node_index)?;
+        let hierarchy = self.hierarchy_nodes.remove(node_index)?;
 
         for direction in Direction::ALL {
             let mut edge_index_next = node.edges[direction.index()];
@@ -165,6 +200,29 @@ impl<N, E> Graph<N, E> {
                 edge.nodes[direction.index()] = None;
                 edge_index_next = std::mem::take(&mut edge.next[direction.index()]);
             }
+        }
+
+        // Remove all node references in the hierarchy.
+        let next_sibling = match hierarchy.siblings[1] {
+            sibling if sibling == node_index => None,
+            sibling => Some(sibling),
+        };
+        if let Some(parent) = hierarchy.parent {
+            let parent_hierarchy = &mut self.hierarchy_nodes[parent];
+            if parent_hierarchy.child == Some(node_index) {
+                parent_hierarchy.child = next_sibling;
+            }
+        }
+        if let Some(child) = hierarchy.child {
+            let child_hierarchy = &mut self.hierarchy_nodes[child];
+            if child_hierarchy.child == Some(node_index) {
+                child_hierarchy.child = next_sibling;
+            }
+        }
+        if let Some(next_sibling) = next_sibling {
+            let prev_sibling = hierarchy.siblings[0];
+            self.hierarchy_nodes[next_sibling].siblings[0] = prev_sibling;
+            self.hierarchy_nodes[prev_sibling].siblings[1] = next_sibling;
         }
 
         Some(node.weight)
@@ -587,6 +645,15 @@ impl<N, E> Graph<N, E> {
             })
             .collect();
 
+        for (old_index, hnode) in other.hierarchy_nodes {
+            let new_index = node_map[&old_index];
+            self.hierarchy_nodes[new_index] = HierarchyNode {
+                parent: hnode.parent.map(|p| node_map[&p]),
+                siblings: [node_map[&hnode.siblings[0]], node_map[&hnode.siblings[1]]],
+                child: hnode.child.map(|p| node_map[&p]),
+            };
+        }
+
         for node_index in node_map.values() {
             self.nodes[*node_index].relink(&edge_map);
         }
@@ -637,12 +704,20 @@ impl<N, E> Graph<N, E> {
             node_map.insert(old_index, new_index);
         });
 
+        self.hierarchy_nodes.compact(|_, old_index, new_index| {
+            debug_assert_eq!(new_index, node_map[&old_index]);
+        });
+
         self.edges.compact(|_, old_index, new_index| {
             edge_map.insert(old_index, new_index);
         });
 
         for (_, node) in self.nodes.iter_mut() {
             node.relink(&edge_map);
+        }
+
+        for (_, hnode) in self.hierarchy_nodes.iter_mut() {
+            hnode.relink(&node_map);
         }
 
         for (_, edge) in self.edges.iter_mut() {
@@ -658,6 +733,7 @@ impl<N, E> Graph<N, E> {
     pub fn shrink_to_fit(&mut self) {
         self.edges.shrink_to_fit();
         self.nodes.shrink_to_fit();
+        self.hierarchy_nodes.shrink_to_fit();
     }
 
     /// Merges two edges together:
