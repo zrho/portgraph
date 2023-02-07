@@ -1,11 +1,11 @@
 #[cfg(feature = "pyo3")]
 use pyo3::prelude::*;
-use std::collections::BTreeMap;
 use std::fmt::{self, Debug};
-use std::iter::FusedIterator;
-use thiserror::Error;
+use std::iter::{FusedIterator, self};
 
+use crate::PortIndex;
 use crate::memory::{slab, Slab};
+use crate::traits::{ConnectError, MergeEdgesError, EdgeMap, NodeMap, BasePortGraph, WeightedPortGraph};
 pub use crate::{Direction, EdgeIndex, NodeIndex};
 
 /// The graph's node type.
@@ -51,9 +51,6 @@ impl<E> Edge<E> {
     }
 }
 
-type NodeMap = BTreeMap<NodeIndex, NodeIndex>;
-type EdgeMap = BTreeMap<EdgeIndex, EdgeIndex>;
-
 #[derive(Clone, PartialEq, Eq)]
 pub struct Graph<N, E> {
     nodes: Slab<NodeIndex, Node<N>>,
@@ -69,99 +66,62 @@ impl<N: Debug, E: Debug> Debug for Graph<N, E> {
     }
 }
 
-impl<N, E> Default for Graph<N, E> {
+impl<N, E> Default for Graph<N, E> where N: Default, E: Default {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<N, E> Graph<N, E> {
-    /// Create a new empty graph.
-    pub fn new() -> Self {
-        Self::with_capacity(0, 0)
+impl<N, E> BasePortGraph for Graph<N, E> where N: Default, E: Default {
+    type NodeIndicesIterator<'a> = NodeIndices<'a, N> where Self: 'a;
+    type NeighboursIterator<'a> = Neighbours<'a, N, E> where Self: 'a;
+    type NodeEdgesIterator<'a> = NodeEdges<'a, N, E> where Self: 'a;
+    type EdgeIndicesIterator<'a> = EdgeIndices<'a, E> where Self: 'a;
+
+    fn new() -> Self {
+        Self::with_capacity(0, 0, 0)
     }
 
-    /// Create a new empty graph with preallocated capacities for nodes and edges.
-    pub fn with_capacity(nodes: usize, edges: usize) -> Self {
+    fn with_capacity(nodes: usize, edges: usize, _ports: usize) -> Self {
         Self {
             nodes: Slab::with_capacity(nodes),
             edges: Slab::with_capacity(edges),
         }
     }
 
-    /// Add a node to the graph.
-    pub fn add_node(&mut self, weight: N) -> NodeIndex {
+    fn add_node_unweighted(&mut self) -> NodeIndex {
         self.nodes.insert(Node {
-            weight,
+            weight: Default::default(),
             edges: [None; 2],
         })
     }
 
-    /// Returns the index at which the next node will be inserted.
     #[inline(always)]
-    pub fn next_node_index(&self) -> NodeIndex {
+    fn next_node_index(&self) -> NodeIndex {
         self.nodes.next_index()
     }
 
-    /// Add a node to the graph with specified incoming and outgoing edges.
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// # use portgraph::graph::{Graph, Direction};
-    /// let mut graph = Graph::<i8, i8>::new();
-    ///
-    /// let e1 = graph.add_edge(-1);
-    /// let e2 = graph.add_edge(-2);
-    /// let e3 = graph.add_edge(-3);
-    /// let n0 = graph.add_node_with_edges(0, [e1, e2], [e3]).unwrap();
-    ///
-    /// assert!(graph.node_edges(n0, Direction::Incoming).eq([e1, e2]));
-    /// assert!(graph.node_edges(n0, Direction::Outgoing).eq([e3]));
-    /// ```
-    pub fn add_node_with_edges(
+    fn add_node_with_edges_unweighted(
         &mut self,
-        weight: N,
         incoming: impl IntoIterator<Item = EdgeIndex>,
         outgoing: impl IntoIterator<Item = EdgeIndex>,
     ) -> Result<NodeIndex, ConnectError> {
-        let node = self.add_node(weight);
+        let node = self.add_node_unweighted();
         self.connect_many(node, incoming, Direction::Incoming, None)?;
         self.connect_many(node, outgoing, Direction::Outgoing, None)?;
         Ok(node)
     }
 
-    /// Add an edge to the graph.
-    pub fn add_edge(&mut self, weight: E) -> EdgeIndex {
+    fn add_edge_unweighted(&mut self) -> EdgeIndex {
         self.edges.insert(Edge {
-            weight,
+            weight: Default::default(),
             next: [None; 2],
             nodes: [None; 2],
         })
     }
 
-    /// Remove a node from the graph.
-    ///
-    /// The edges connected to the node will remain in the graph but will become dangling.
-    ///
-    /// Returns the node's weight if it existed or `None` otherwise.
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// # use portgraph::graph::{Graph, Direction};
-    /// let mut graph = Graph::<i8, i8>::new();
-    ///
-    /// let e1 = graph.add_edge(-1);
-    /// let n0 = graph.add_node_with_edges(0, [e1], []).unwrap();
-    ///
-    /// assert_eq!(graph.remove_node(n0), Some(0));
-    /// assert_eq!(graph.remove_node(n0), None);
-    /// assert!(graph.has_edge(e1));
-    /// assert_eq!(graph.edge_endpoint(e1, Direction::Incoming), None);
-    /// ```
-    pub fn remove_node(&mut self, node_index: NodeIndex) -> Option<N> {
-        let node = self.nodes.remove(node_index)?;
+    fn remove_node_unweighted(&mut self, node_index: NodeIndex) -> bool {
+        let Some(node )= self.nodes.remove(node_index) else {return false;};
 
         for direction in Direction::ALL {
             let mut edge_index_next = node.edges[direction.index()];
@@ -173,68 +133,24 @@ impl<N, E> Graph<N, E> {
             }
         }
 
-        Some(node.weight)
+        true
     }
 
-    /// Remove an edge from the graph.
-    ///
-    /// The nodes that the edge is connected to will remain the graph but will no longer refer to
-    /// the deleted edge. This changes the indices of the edges adjacent to a node.
-    ///
-    /// Returns the edge's weight if it existed or `None` otherwise.
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// # use portgraph::graph::{Graph, Direction};
-    /// let mut graph = Graph::<i8, i8>::new();
-    ///
-    /// let e1 = graph.add_edge(-1);
-    /// let e2 = graph.add_edge(-2);
-    /// let e3 = graph.add_edge(-3);
-    /// let n0 = graph.add_node_with_edges(0, [e1, e2, e3], []).unwrap();
-    ///
-    /// assert_eq!(graph.remove_edge(e2), Some(-2));
-    /// assert_eq!(graph.remove_edge(e2), None);
-    /// assert!(graph.node_edges(n0, Direction::Incoming).eq([e1, e3]));
-    /// ```
-    pub fn remove_edge(&mut self, e: EdgeIndex) -> Option<E> {
+    fn remove_edge_unweighted(&mut self, e: EdgeIndex) -> bool {
         self.disconnect(e, Direction::Incoming);
         self.disconnect(e, Direction::Outgoing);
-        let edge = self.edges.remove(e)?;
-        Some(edge.weight)
+        self.edges.remove(e).is_some()
     }
 
-    /// Check whether the graph has a node with a given index.
-    pub fn has_node(&self, n: NodeIndex) -> bool {
+    fn has_node(&self, n: NodeIndex) -> bool {
         self.nodes.contains(n)
     }
 
-    /// Check whether the graph has an edge with a given index.
-    pub fn has_edge(&self, e: EdgeIndex) -> bool {
+    fn has_edge(&self, e: EdgeIndex) -> bool {
         self.edges.contains(e)
     }
 
-    /// Connect an edge to an incoming or outgoing port of a node.
-    ///
-    /// The edge will be connected after the edge with index `edge_prev`.
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// # use portgraph::graph::{Graph, Direction};
-    /// let mut graph = Graph::<i8, i8>::new();
-    ///
-    /// let e1 = graph.add_edge(-1);
-    /// let e2 = graph.add_edge(-2);
-    /// let e3 = graph.add_edge(-3);
-    /// let n0 = graph.add_node_with_edges(0, [e1, e3], []).unwrap();
-    ///
-    /// graph.connect_after(n0, e2, Direction::Incoming, e1).unwrap();
-    ///
-    /// assert!(graph.node_edges(n0, Direction::Incoming).eq([e1, e2, e3]));
-    /// ```
-    pub fn connect_after(
+    fn connect_after(
         &mut self,
         node: NodeIndex,
         edge: EdgeIndex,
@@ -263,26 +179,7 @@ impl<N, E> Graph<N, E> {
         Ok(())
     }
 
-    /// Connect an edge to an incoming or outgoing port of a node.
-    ///
-    /// The edge will be connected before all other edges adjacent to the node.
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// # use portgraph::graph::{Graph, Direction};
-    /// let mut graph = Graph::<i8, i8>::new();
-    ///
-    /// let e1 = graph.add_edge(-1);
-    /// let e2 = graph.add_edge(-2);
-    /// let n0 = graph.add_node(0);
-    ///
-    /// graph.connect_first(n0, e2, Direction::Incoming).unwrap();
-    /// graph.connect_first(n0, e1, Direction::Incoming).unwrap();
-    ///
-    /// assert!(graph.node_edges(n0, Direction::Incoming).eq([e1, e2]));
-    /// ```
-    pub fn connect_first(
+    fn connect_first(
         &mut self,
         node: NodeIndex,
         edge: EdgeIndex,
@@ -302,8 +199,7 @@ impl<N, E> Graph<N, E> {
         Ok(())
     }
 
-    /// Connect an edge to an incoming or outgoing port of a node.
-    pub fn connect(
+    fn connect(
         &mut self,
         node: NodeIndex,
         edge: EdgeIndex,
@@ -316,8 +212,7 @@ impl<N, E> Graph<N, E> {
         }
     }
 
-    /// Connect a collection of edges to incoming or outgoing ports of a node.
-    pub fn connect_many(
+    fn connect_many(
         &mut self,
         node: NodeIndex,
         edges: impl IntoIterator<Item = EdgeIndex>,
@@ -332,7 +227,7 @@ impl<N, E> Graph<N, E> {
         Ok(())
     }
 
-    pub fn connect_last(
+    fn connect_last(
         &mut self,
         node: NodeIndex,
         edge: EdgeIndex,
@@ -342,39 +237,7 @@ impl<N, E> Graph<N, E> {
         self.connect(node, edge, direction, edge_prev)
     }
 
-    fn edge_prev(&self, edge_index: EdgeIndex, direction: Direction) -> Option<EdgeIndex> {
-        let node_index = self.edge_endpoint(edge_index, direction)?;
-
-        self.node_edges(node_index, direction)
-            .skip(1)
-            .zip(self.node_edges(node_index, direction))
-            .find(|(item, _)| *item == edge_index)
-            .map(|(_, prev)| prev)
-    }
-
-    /// Disconnect an edge endpoint from a node.
-    ///
-    /// This operation takes time linear in the number of edges that precede the edge to be
-    /// disconnected at the node.
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// # use portgraph::graph::{Graph, Direction};
-    /// let mut graph = Graph::<i8, i8>::new();
-    ///
-    /// let e1 = graph.add_edge(-1);
-    /// let e2 = graph.add_edge(-2);
-    /// let e3 = graph.add_edge(-3);
-    /// let n0 = graph.add_node_with_edges(0, [e1, e2, e3], []).unwrap();
-    ///
-    /// graph.disconnect(e2, Direction::Incoming);
-    /// assert!(graph.node_edges(n0, Direction::Incoming).eq([e1, e3]));
-    ///
-    /// graph.disconnect(e1, Direction::Incoming);
-    /// assert!(graph.node_edges(n0, Direction::Incoming).eq([e3]));
-    /// ```
-    pub fn disconnect(&mut self, edge_index: EdgeIndex, direction: Direction) {
+    fn disconnect(&mut self, edge_index: EdgeIndex, direction: Direction) {
         if !self.has_edge(edge_index) {
             return;
         }
@@ -395,7 +258,7 @@ impl<N, E> Graph<N, E> {
         }
     }
 
-    pub fn replace_connection(
+    fn replace_connection(
         &mut self,
         prev: EdgeIndex,
         new: EdgeIndex,
@@ -411,25 +274,7 @@ impl<N, E> Graph<N, E> {
         Ok(())
     }
 
-    /// Connect edge to node, inserting to connection list at specified index.
-    ///
-    /// This operation takes time linear in index.
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// # use portgraph::graph::{Graph, Direction};
-    /// let mut graph = Graph::<i8, i8>::new();
-    ///
-    /// let e1 = graph.add_edge(-1);
-    /// let e2 = graph.add_edge(-2);
-    /// let n0 = graph.add_node_with_edges(0, [e1], []).unwrap();
-    ///
-    /// graph.insert_edge(n0, e2, Direction::Incoming, 1);
-    /// assert!(graph.node_edges(n0, Direction::Incoming).eq([e1, e2]));
-    ///
-    /// ```
-    pub fn insert_edge(
+    fn insert_edge(
         &mut self,
         node: NodeIndex,
         edge: EdgeIndex,
@@ -445,35 +290,11 @@ impl<N, E> Graph<N, E> {
         self.connect(node, edge, direction, edge_prev)
     }
 
-    /// A reference to the weight of the node with a given index.
-    pub fn node_weight(&self, a: NodeIndex) -> Option<&N> {
-        Some(&self.nodes.get(a)?.weight)
-    }
-
-    /// A mutable reference to the weight of the node with a given index.
-    pub fn node_weight_mut(&mut self, a: NodeIndex) -> Option<&mut N> {
-        Some(&mut self.nodes.get_mut(a)?.weight)
-    }
-
-    /// A reference to the weight of the edge with a given index.
-    pub fn edge_weight(&self, e: EdgeIndex) -> Option<&E> {
-        Some(&self.edges.get(e)?.weight)
-    }
-
-    /// A mutable reference to the weight of the edge with a given index.
-    pub fn edge_weight_mut(&mut self, e: EdgeIndex) -> Option<&mut E> {
-        Some(&mut self.edges.get_mut(e)?.weight)
-    }
-
-    /// The endpoint of an edge in a given direction.
-    ///
-    /// Returns `None` if the edge does not exist or has no endpoint in that direction.
-    pub fn edge_endpoint(&self, e: EdgeIndex, direction: Direction) -> Option<NodeIndex> {
+    fn edge_endpoint(&self, e: EdgeIndex, direction: Direction) -> Option<NodeIndex> {
         self.edges.get(e)?.nodes[direction.index()]
     }
 
-    /// Iterator over the edges that are connected to a node.
-    pub fn node_edges(&self, n: NodeIndex, direction: Direction) -> NodeEdges<'_, N, E> {
+    fn node_edges<'a>(&'a self, n: NodeIndex, direction: Direction) -> Self::NodeEdgesIterator<'a> {
         let next = self
             .nodes
             .get(n)
@@ -486,92 +307,46 @@ impl<N, E> Graph<N, E> {
         }
     }
 
-    // Iterate over connected nodes.
-    pub fn neighbours(
-        &self,
+    fn neighbours<'a>(
+        &'a self,
         n: NodeIndex,
         direction: Direction,
-    ) -> impl Iterator<Item = NodeIndex> + '_ {
-        self.node_edges(n, direction)
-            .filter_map(move |e| self.edge_endpoint(e, direction.reverse()))
+    ) -> Self::NeighboursIterator<'a> {
+        Neighbours{
+            edges: self.node_edges(n, direction),
+            graph: self,
+            direction,
+        }
     }
 
-    /// Iterator over the node indices of the graph.
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// # use portgraph::graph::{Graph, Direction};
-    /// let mut graph = Graph::<i8, i8>::new();
-    ///
-    /// let n0 = graph.add_node(0);
-    /// let n1 = graph.add_node(1);
-    /// let n2 = graph.add_node(2);
-    ///
-    /// graph.remove_node(n1);
-    ///
-    /// assert!(graph.node_indices().eq([n0, n2]));
-    /// ```
-    pub fn node_indices(&self) -> NodeIndices<N> {
+    fn node_indices<'a>(&'a self) -> Self::NodeIndicesIterator<'a> {
         NodeIndices(self.nodes.iter())
     }
 
-    /// Iterator over the edge indices of the graph.
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// # use portgraph::graph::{Graph, Direction};
-    /// let mut graph = Graph::<i8, i8>::new();
-    ///
-    /// let e1 = graph.add_edge(-1);
-    /// let e2 = graph.add_edge(-2);
-    /// let e3 = graph.add_edge(-3);
-    ///
-    /// graph.remove_edge(e2);
-    ///
-    /// assert!(graph.edge_indices().eq([e1, e3]));
-    /// ```
-    pub fn edge_indices(&self) -> EdgeIndices<E> {
+    fn edge_indices<'a>(&'a self) -> Self::EdgeIndicesIterator<'a> {
         EdgeIndices(self.edges.iter())
     }
 
-    /// Iterator over the node weights of the graph.
-    pub fn node_weights(&self) -> impl Iterator<Item = &N> + '_ {
-        self.nodes.iter().map(|(_, node)| &node.weight)
-    }
-
-    /// Iterator over the edge weights of the graph.
-    pub fn edge_weights(&self) -> impl Iterator<Item = &E> + '_ {
-        self.edges.iter().map(|(_, node)| &node.weight)
-    }
-
-    /// Number of nodes in the graph.
     #[inline]
-    pub fn node_count(&self) -> usize {
+    fn node_count(&self) -> usize {
         self.nodes.len()
     }
 
-    /// Number of edges in the graph.
     #[inline]
-    pub fn edge_count(&self) -> usize {
+    fn edge_count(&self) -> usize {
         self.edges.len()
     }
 
-    /// Whether the graph has neither nodes nor edges.
+    fn port_count(&self) -> usize {
+        todo!()
+    }
+
     #[inline]
-    pub fn is_empty(&self) -> bool {
+    fn is_empty(&self) -> bool {
         self.nodes.is_empty() && self.edges.is_empty()
     }
 
-    /// Insert a graph into this graph.
-    ///
-    /// Returns maps from the node and edge indices in the original graph to the
-    /// new indices which were allocated in this graph.
-    ///
-    /// [Graph::merge_edges] can be used along dangling edges to connect the inserted
-    /// subgraph with the rest of the graph
-    pub fn insert_graph(&mut self, other: Self) -> (NodeMap, EdgeMap) {
+    fn insert_graph(&mut self, other: Self) -> (NodeMap, EdgeMap) {
         let node_map: NodeMap = other
             .nodes
             .into_iter()
@@ -604,38 +379,7 @@ impl<N, E> Graph<N, E> {
         (node_map, edge_map)
     }
 
-    /// Reindex the nodes and edges to be contiguous.
-    ///
-    /// Returns maps from the previous node and edge indices to their new indices.
-    ///
-    /// Preserves the order of nodes and edges.
-    ///
-    /// This method does not release the unused capacity of the graph's storage after
-    /// compacting as it might be needed immediately for new insertions. To reduce the
-    /// graph's memory allocation call [Graph::shrink_to_fit] after compacting.
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// # use portgraph::graph::{Graph, Direction};
-    /// # use std::collections::BTreeMap;
-    /// let mut graph = Graph::<i8, i8>::new();
-    ///
-    /// let e1 = graph.add_edge(-1);
-    /// let e2 = graph.add_edge(-2);
-    /// let n0 = graph.add_node_with_edges(0, [e2], [e1]).unwrap();
-    /// let n1 = graph.add_node_with_edges(1, [e1], [e2]).unwrap();
-    ///
-    /// graph.remove_node(n0);
-    /// graph.remove_edge(e1);
-    ///
-    /// let (node_map, edge_map) = graph.compact();
-    ///
-    /// assert_eq!(node_map, BTreeMap::from_iter([(n1, n0)]));
-    /// assert_eq!(edge_map, BTreeMap::from_iter([(e2, e1)]));
-    /// assert!(graph.node_edges(n0, Direction::Outgoing).eq([e1]));
-    /// ```
-    pub fn compact(&mut self) -> (NodeMap, EdgeMap) {
+    fn compact(&mut self) -> (NodeMap, EdgeMap) {
         let mut node_map = NodeMap::new();
         let mut edge_map = EdgeMap::new();
 
@@ -658,43 +402,121 @@ impl<N, E> Graph<N, E> {
         (node_map, edge_map)
     }
 
-    /// Shrinks the graph's data store as much as possible.
-    ///
-    /// When there are a lot of empty slots, call [Graph::compact] before to make indices contiguous.
-    pub fn shrink_to_fit(&mut self) {
+    fn shrink_to_fit(&mut self) {
         self.edges.shrink_to_fit();
         self.nodes.shrink_to_fit();
     }
 
-    /// Merges two edges together:
-    /// The edge with index `from` will be removed and its weight returned. The edge with
-    /// index `into` will be connected to the node ports that `from` was connected to.
-    ///
-    /// This method is useful to connect subgraphs inserted via [Graph::insert_graph]
-    /// to the rest of the graph.
-    ///
-    /// # Errors
-    ///
-    /// Attempting to merge edges which both are already connected to nodes in the same direction
-    /// will result in an error.
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// # use portgraph::graph::{Graph, Direction};
-    /// let mut graph = Graph::<i8, i8>::new();
-    ///
-    /// let e1 = graph.add_edge(-1);
-    /// let e2 = graph.add_edge(-2);
-    /// let n0 = graph.add_node_with_edges(0, [], [e1]).unwrap();
-    /// let n1 = graph.add_node_with_edges(1, [e2], []).unwrap();
-    ///
-    /// assert_eq!(graph.merge_edges(e2, e1).unwrap(), -2);
-    /// assert!(!graph.has_edge(e2));
-    /// assert!(graph.node_edges(n0, Direction::Outgoing).eq([e1]));
-    /// assert!(graph.node_edges(n1, Direction::Incoming).eq([e1]));
-    /// ```
-    pub fn merge_edges(&mut self, from: EdgeIndex, into: EdgeIndex) -> Result<E, MergeEdgesError> {
+    fn merge_edges_unweighted(&mut self, from: EdgeIndex, into: EdgeIndex) -> Result<(), MergeEdgesError> {
+        self.merge_edges(from, into).map(|_| ())
+    }
+
+    /// Returns the index of the previous edge that is connected to the node in the given direction.
+    fn edge_prev(&self, edge_index: EdgeIndex, direction: Direction) -> Option<EdgeIndex> {
+        let node_index = self.edge_endpoint(edge_index, direction)?;
+
+        self.node_edges(node_index, direction)
+            .skip(1)
+            .zip(self.node_edges(node_index, direction))
+            .find(|(item, _)| *item == edge_index)
+            .map(|(_, prev)| prev)
+    }
+}
+
+impl<N,E> WeightedPortGraph<N,E,()> for Graph<N,E> where N: Default, E: Default {
+
+    type NodeWeightsIterator<'a> = NodeWeights<'a, N> where Self: 'a, N: 'a;
+    type EdgeWeightsIterator<'a> = EdgeWeights<'a, E> where Self: 'a, E: 'a;
+    type PortWeightsIterator<'a> = iter::Empty<(PortIndex, &'a ())> where Self: 'a;
+
+    fn add_node(&mut self, weight: N) -> NodeIndex {
+        self.nodes.insert(Node {
+            weight,
+            edges: [None; 2],
+        })
+    }
+
+    fn add_node_with_edges(
+        &mut self,
+        weight: N,
+        incoming: impl IntoIterator<Item = EdgeIndex>,
+        outgoing: impl IntoIterator<Item = EdgeIndex>,
+    ) -> Result<NodeIndex, ConnectError> {
+        let node = self.add_node(weight);
+        self.connect_many(node, incoming, Direction::Incoming, None)?;
+        self.connect_many(node, outgoing, Direction::Outgoing, None)?;
+        Ok(node)
+    }
+
+
+    fn add_edge(&mut self, weight: E) -> EdgeIndex {
+        self.edges.insert(Edge {
+            weight,
+            next: [None; 2],
+            nodes: [None; 2],
+        })
+    }
+
+    fn remove_node(&mut self, node_index: NodeIndex) -> Option<N> {
+        let node = self.nodes.remove(node_index)?;
+
+        for direction in Direction::ALL {
+            let mut edge_index_next = node.edges[direction.index()];
+
+            while let Some(edge_index) = edge_index_next {
+                let edge = &mut self.edges[edge_index];
+                edge.nodes[direction.index()] = None;
+                edge_index_next = std::mem::take(&mut edge.next[direction.index()]);
+            }
+        }
+
+        Some(node.weight)
+    }
+
+    fn remove_edge(&mut self, e: EdgeIndex) -> Option<E> {
+        self.disconnect(e, Direction::Incoming);
+        self.disconnect(e, Direction::Outgoing);
+        let edge = self.edges.remove(e)?;
+        Some(edge.weight)
+    }
+
+    fn node_weight(&self, a: NodeIndex) -> Option<&N> {
+        Some(&self.nodes.get(a)?.weight)
+    }
+
+    fn node_weight_mut(&mut self, a: NodeIndex) -> Option<&mut N> {
+        Some(&mut self.nodes.get_mut(a)?.weight)
+    }
+
+    fn node_weights<'a>(&'a self) -> Self::NodeWeightsIterator<'a> {
+        NodeWeights(self.nodes.iter())
+    }
+
+    fn edge_weight(&self, e: EdgeIndex) -> Option<&E> {
+        Some(&self.edges.get(e)?.weight)
+    }
+
+    fn edge_weight_mut(&mut self, e: EdgeIndex) -> Option<&mut E> {
+        Some(&mut self.edges.get_mut(e)?.weight)
+    }
+
+    fn edge_weights<'a>(&'a self) -> Self::EdgeWeightsIterator<'a> {
+        EdgeWeights(self.edges.iter())
+    }
+
+    fn port_weight(&self, _e: crate::PortIndex) -> Option<&()> {
+        None
+    }
+
+    fn port_weight_mut(&mut self, _e: crate::PortIndex) -> Option<&mut ()> {
+        None
+    }
+
+    fn port_weights<'a>(&'a self) -> Self::PortWeightsIterator<'a> {
+        iter::empty()
+    }
+
+    fn merge_edges(&mut self, from: EdgeIndex, into: EdgeIndex) -> Result<E, MergeEdgesError> {
         if !self.has_edge(from) | !self.has_edge(into) {
             return Err(MergeEdgesError::UnknownEdge);
         }
@@ -763,29 +585,32 @@ impl<N, E> std::ops::IndexMut<EdgeIndex> for Graph<N, E> {
     }
 }
 
-/// Error returned by [Graph::connect] and similar methods.
-#[derive(Debug, Error)]
-pub enum ConnectError {
-    #[error("unknown node")]
-    UnknownNode,
-    #[error("unknown edge")]
-    UnknownEdge,
-    #[error("node mismatch")]
-    NodeMismatch,
-    #[error("edge is already connected")]
-    AlreadyConnected,
-    #[error("can not connect edge relative to itself")]
-    SameEdge,
+/// Iterator created by [Graph::neighbours].
+pub struct Neighbours<'a, N, E>{
+    edges: NodeEdges<'a, N, E>,
+    graph: &'a Graph<N, E>,
+    direction: Direction,
 }
 
-/// Error returned by [Graph::merge_edges].
-#[derive(Debug, Error)]
-pub enum MergeEdgesError {
-    #[error("unknown edge")]
-    UnknownEdge,
-    #[error("edge is already connected")]
-    AlreadyConnected,
+impl<'a, N, E> Iterator for Neighbours<'a, N, E> where N: Default, E: Default {
+    type Item = NodeIndex;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            let e = self.edges.next()?;
+            if let Some(n) = self.graph.edge_endpoint(e, self.direction.reverse()) {
+                return Some(n);
+            }
+        }
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        (0, self.edges.size_hint().1)
+    }
 }
+
+impl<'a, N, E> ExactSizeIterator for Neighbours<'a, N, E>  where N: Default, E: Default {}
+impl<'a, N, E> FusedIterator for Neighbours<'a, N, E>  where N: Default, E: Default{}
 
 /// Iterator created by [Graph::node_edges].
 #[derive(Clone)]
@@ -823,6 +648,44 @@ impl<'a, N> Iterator for NodeIndices<'a, N> {
 
 impl<'a, N> ExactSizeIterator for NodeIndices<'a, N> {}
 impl<'a, N> FusedIterator for NodeIndices<'a, N> {}
+
+/// Iterator created by [Graph::node_weights].
+pub struct NodeWeights<'a, N: 'a>(slab::Iter<'a, NodeIndex, Node<N>>);
+
+impl<'a, N> Iterator for NodeWeights<'a, N> {
+    type Item = (NodeIndex, &'a N);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let (ix, n) = self.0.next()?;
+        Some((ix, &n.weight))
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.0.size_hint()
+    }
+}
+
+impl<'a, N> ExactSizeIterator for NodeWeights<'a, N> {}
+impl<'a, N> FusedIterator for NodeWeights<'a, N> {}
+
+/// Iterator created by [Graph::edge_weights].
+pub struct EdgeWeights<'a, E: 'a>(slab::Iter<'a, EdgeIndex, Edge<E>>);
+
+impl<'a, E> Iterator for EdgeWeights<'a, E> {
+    type Item = (EdgeIndex, &'a E);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let (ix, n) = self.0.next()?;
+        Some((ix, &n.weight))
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.0.size_hint()
+    }
+}
+
+impl<'a, N> ExactSizeIterator for EdgeWeights<'a, N> {}
+impl<'a, N> FusedIterator for EdgeWeights<'a, N> {}
 
 /// Iterator created by [Graph::edge_indices].
 pub struct EdgeIndices<'a, E: 'a>(slab::Iter<'a, EdgeIndex, Edge<E>>);

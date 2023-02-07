@@ -4,9 +4,10 @@ use criterion::{
 };
 use portgraph::graph_test;
 use portgraph::{graph::Graph, Direction, PortGraph};
+use portgraph::traits::{BasePortGraph, WeightedPortGraph};
 
 fn make_line_graph(size: usize) -> Graph<usize, (usize, usize, usize)> {
-    let mut graph = Graph::with_capacity(size, size * 2);
+    let mut graph = Graph::with_capacity(size, size * 2, 0);
     let edge0 = graph.add_edge((0, 0, 1));
     let edge1 = graph.add_edge((0, 0, 1));
     let mut prev_node = graph.add_node_with_edges(0, [], [edge0, edge1]).unwrap();
@@ -68,7 +69,7 @@ fn make_line_hypergraph(size: usize) -> PortGraph<usize, usize, usize> {
 /// o ---> o ---> o ---> o ---> o   ...
 ///
 fn make_two_track_dag(layers: usize) -> Graph<usize, usize> {
-    let mut graph = Graph::with_capacity(layers, layers + layers / 3);
+    let mut graph = Graph::with_capacity(layers, layers + layers / 3, 0);
     if layers == 0 {
         return graph;
     } else if layers == 1 {
