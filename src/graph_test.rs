@@ -3,7 +3,8 @@ use tinyvec::TinyVec;
 
 use crate::{
     memory::{map::SecondaryMap, EntityIndex},
-    Direction, traits::ConnectError,
+    traits::ConnectError,
+    Direction,
 };
 
 #[derive(Debug, Clone)]
@@ -26,10 +27,6 @@ struct NodeData<EI: Default> {
 }
 
 impl<EI: EntityIndex> NodeData<EI> {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
     pub fn add_incoming_ports(&mut self, ports: impl IntoIterator<Item = EI>) -> Range<usize> {
         let ports = ports.into_iter();
         let range_start = self.ports_incoming as usize;
@@ -45,8 +42,6 @@ impl<EI: EntityIndex> NodeData<EI> {
 
     pub fn add_outgoing_ports(&mut self, ports: impl IntoIterator<Item = EI>) -> Range<usize> {
         let ports = ports.into_iter();
-        let min_size = ports.size_hint();
-
         let range_start = self.edges.len();
         self.edges.extend(ports);
         range_start..self.edges.len()
@@ -118,6 +113,13 @@ impl<NI: EntityIndex, EI: EntityIndex> Graph<NI, EI> {
         }
     }
 
+    /// Adds ports to a node by connecting the given incoming and outgoing edges
+    /// at the end of the node's port lists.
+    ///
+    /// # Errors
+    ///
+    /// Fails when one of the edges is already connected in the relevant direction.
+    /// In the case of an error, the graph will remain unchanged.
     pub fn add_node_ports(
         &mut self,
         node: NI,
@@ -160,13 +162,40 @@ impl<NI: EntityIndex, EI: EntityIndex> Graph<NI, EI> {
         Ok(())
     }
 
+    /// Disconnects all ports of a node.
+    pub fn clear_node_ports(&mut self, node: NI) {
+        let Some(node_data) = self.nodes.take(node) else {
+            return;
+        };
+
+        for (_, direction, edge) in node_data.edges_with_ports() {
+            let mut edge_data = &mut self.edges[edge];
+            edge_data.nodes[direction.index()] = None;
+            edge_data.ports[direction.index()] = 0;
+        }
+    }
+
     /// Returns the endpoint of an edge in a given direction.
     ///
     /// `None` if the edge does not exist or has no endpoint in that direction.
+    #[inline]
     pub fn edge_endpoint(&self, edge: EI, direction: Direction) -> Option<NI> {
         self.edges[edge].nodes[direction.index()]
     }
 
+    /// Returns the index of the port that an edge is connected to.
+    ///
+    /// `None` if the edge is not connected in the direction.
+    #[inline]
+    pub fn edge_port(&self, edge: EI, direction: Direction) -> Option<usize> {
+        Some(self.edges.get(edge)?.ports[direction.index()] as usize)
+    }
+
+    /// Connects an edge to a new node port at the end of the node's port list.
+    ///
+    /// # Errors
+    ///
+    /// Fails if the edge is already connected in the direction.
     pub fn connect_last(
         &mut self,
         node: NI,
@@ -186,6 +215,13 @@ impl<NI: EntityIndex, EI: EntityIndex> Graph<NI, EI> {
         Ok(())
     }
 
+    /// Connects an edge to a new node port at an index in the node's port list.
+    ///
+    /// If the index is out of bounds for the port list, the edge will be connected at the end of the port list instead.
+    ///
+    /// # Errors
+    ///
+    /// Fails if the edge is already connected in the direction.
     pub fn connect_at(
         &mut self,
         node: NI,
@@ -198,10 +234,9 @@ impl<NI: EntityIndex, EI: EntityIndex> Graph<NI, EI> {
 
         if edge_data.nodes[direction.index()].is_some() {
             return Err(ConnectError::AlreadyConnected);
-        } else if index >= node_data.edge_slice(direction).len() {
-            return Err(ConnectError::OutOfBounds);
         }
 
+        let index = std::cmp::min(index, node_data.edge_slice(direction).len());
         node_data.insert_edge(index, edge, direction);
         edge_data.nodes[direction.index()] = Some(node);
         edge_data.ports[direction.index()] = index as u16;
@@ -214,21 +249,12 @@ impl<NI: EntityIndex, EI: EntityIndex> Graph<NI, EI> {
         Ok(())
     }
 
+    /// Returns a slice containing the indices of the edges connected to a node in a specified direction.
     pub fn node_edges(&self, node: NI, direction: Direction) -> &[EI] {
         self.nodes
             .get(node)
             .map(move |node_data| node_data.edge_slice(direction))
             .unwrap_or(&[])
-    }
-
-    #[inline(always)]
-    pub fn node_inputs(&self, node: NI) -> &[EI] {
-        self.node_edges(node, Direction::Incoming)
-    }
-
-    #[inline(always)]
-    pub fn node_outputs(&self, node: NI) -> &[EI] {
-        self.node_edges(node, Direction::Outgoing)
     }
 
     /// Changes the key of a node.
