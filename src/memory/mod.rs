@@ -3,6 +3,7 @@
 //! Ultimately this module should have its own crate since it can be useful outside of graphs.
 //! Inspired by the memory management in Cranelift IR.
 pub mod list;
+pub mod map;
 pub mod slab;
 
 pub use list::ListPool;
