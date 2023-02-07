@@ -8,12 +8,14 @@ use crate::{
 };
 
 #[derive(Debug, Clone)]
-pub struct Graph<NI, EI: Default> {
-    nodes: SecondaryMap<NI, NodeData<EI>>,
+pub struct Graph<NI, EI, const NP: usize>
+where
+    [EI; NP]: tinyvec::Array<Item = EI>,
+    EI: Default,
+{
+    nodes: SecondaryMap<NI, NodeData<EI, NP>>,
     edges: SecondaryMap<EI, EdgeData<NI>>,
 }
-
-const EDGE_LIST_SIZE: usize = 7;
 
 // TODO: Ideally we would not want to require the edge indices to implement
 // `Default`, but this is required for using `tinyvec`. Alternative creates such
@@ -21,12 +23,19 @@ const EDGE_LIST_SIZE: usize = 7;
 // space. Perhaps implement the few aspects of `tinyvec` that we need here ourselves?
 
 #[derive(Debug, Clone, Default)]
-struct NodeData<EI: Default> {
+struct NodeData<EI: Default, const NP: usize>
+where
+    [EI; NP]: tinyvec::Array<Item = EI>,
+{
     ports_incoming: u16,
-    edges: TinyVec<[EI; EDGE_LIST_SIZE]>,
+    edges: TinyVec<[EI; NP]>,
 }
 
-impl<EI: EntityIndex> NodeData<EI> {
+impl<EI, const NP: usize> NodeData<EI, NP>
+where
+    [EI; NP]: tinyvec::Array<Item = EI>,
+    EI: EntityIndex,
+{
     pub fn add_incoming_ports(&mut self, ports: impl IntoIterator<Item = EI>) -> Range<usize> {
         let ports = ports.into_iter();
         let range_start = self.ports_incoming as usize;
@@ -104,7 +113,12 @@ struct EdgeData<NI> {
     nodes: [Option<NI>; 2],
 }
 
-impl<NI: EntityIndex, EI: EntityIndex> Graph<NI, EI> {
+impl<NI, EI, const NP: usize> Graph<NI, EI, NP>
+where
+    NI: EntityIndex,
+    EI: EntityIndex,
+    [EI; NP]: tinyvec::Array<Item = EI>,
+{
     /// Create a new empty graph.
     pub fn new() -> Self {
         Self {
@@ -316,7 +330,12 @@ impl<NI: EntityIndex, EI: EntityIndex> Graph<NI, EI> {
     }
 }
 
-impl<NI: EntityIndex, EI: EntityIndex> Default for Graph<NI, EI> {
+impl<NI, EI, const NP: usize> Default for Graph<NI, EI, NP>
+where
+    [EI; NP]: tinyvec::Array<Item = EI>,
+    NI: EntityIndex,
+    EI: EntityIndex,
+{
     fn default() -> Self {
         Self::new()
     }
