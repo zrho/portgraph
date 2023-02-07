@@ -1,11 +1,13 @@
 #[cfg(feature = "pyo3")]
 use pyo3::prelude::*;
 use std::fmt::{self, Debug};
-use std::iter::{FusedIterator, self};
+use std::iter::{self, FusedIterator};
 
-use crate::PortIndex;
 use crate::memory::{slab, Slab};
-use crate::traits::{ConnectError, MergeEdgesError, EdgeMap, NodeMap, BasePortGraph, WeightedPortGraph};
+use crate::traits::{
+    BasePortGraph, ConnectError, EdgeMap, MergeEdgesError, NodeMap, WeightedPortGraph,
+};
+use crate::PortIndex;
 pub use crate::{Direction, EdgeIndex, NodeIndex};
 
 /// The graph's node type.
@@ -66,13 +68,21 @@ impl<N: Debug, E: Debug> Debug for Graph<N, E> {
     }
 }
 
-impl<N, E> Default for Graph<N, E> where N: Default, E: Default {
+impl<N, E> Default for Graph<N, E>
+where
+    N: Default,
+    E: Default,
+{
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<N, E> BasePortGraph for Graph<N, E> where N: Default, E: Default {
+impl<N, E> BasePortGraph for Graph<N, E>
+where
+    N: Default,
+    E: Default,
+{
     type NodeIndicesIterator<'a> = NodeIndices<'a, N> where Self: 'a;
     type NeighboursIterator<'a> = Neighbours<'a, N, E> where Self: 'a;
     type NodeEdgesIterator<'a> = NodeEdges<'a, N, E> where Self: 'a;
@@ -312,7 +322,7 @@ impl<N, E> BasePortGraph for Graph<N, E> where N: Default, E: Default {
         n: NodeIndex,
         direction: Direction,
     ) -> Self::NeighboursIterator<'a> {
-        Neighbours{
+        Neighbours {
             edges: self.node_edges(n, direction),
             graph: self,
             direction,
@@ -407,7 +417,11 @@ impl<N, E> BasePortGraph for Graph<N, E> where N: Default, E: Default {
         self.nodes.shrink_to_fit();
     }
 
-    fn merge_edges_unweighted(&mut self, from: EdgeIndex, into: EdgeIndex) -> Result<(), MergeEdgesError> {
+    fn merge_edges_unweighted(
+        &mut self,
+        from: EdgeIndex,
+        into: EdgeIndex,
+    ) -> Result<(), MergeEdgesError> {
         self.merge_edges(from, into).map(|_| ())
     }
 
@@ -423,8 +437,11 @@ impl<N, E> BasePortGraph for Graph<N, E> where N: Default, E: Default {
     }
 }
 
-impl<N,E> WeightedPortGraph<N,E,()> for Graph<N,E> where N: Default, E: Default {
-
+impl<N, E> WeightedPortGraph<N, E, ()> for Graph<N, E>
+where
+    N: Default,
+    E: Default,
+{
     type NodeWeightsIterator<'a> = NodeWeights<'a, N> where Self: 'a, N: 'a;
     type EdgeWeightsIterator<'a> = EdgeWeights<'a, E> where Self: 'a, E: 'a;
     type PortWeightsIterator<'a> = iter::Empty<(PortIndex, &'a ())> where Self: 'a;
@@ -447,7 +464,6 @@ impl<N,E> WeightedPortGraph<N,E,()> for Graph<N,E> where N: Default, E: Default 
         self.connect_many(node, outgoing, Direction::Outgoing, None)?;
         Ok(node)
     }
-
 
     fn add_edge(&mut self, weight: E) -> EdgeIndex {
         self.edges.insert(Edge {
@@ -586,13 +602,17 @@ impl<N, E> std::ops::IndexMut<EdgeIndex> for Graph<N, E> {
 }
 
 /// Iterator created by [Graph::neighbours].
-pub struct Neighbours<'a, N, E>{
+pub struct Neighbours<'a, N, E> {
     edges: NodeEdges<'a, N, E>,
     graph: &'a Graph<N, E>,
     direction: Direction,
 }
 
-impl<'a, N, E> Iterator for Neighbours<'a, N, E> where N: Default, E: Default {
+impl<'a, N, E> Iterator for Neighbours<'a, N, E>
+where
+    N: Default,
+    E: Default,
+{
     type Item = NodeIndex;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -609,8 +629,18 @@ impl<'a, N, E> Iterator for Neighbours<'a, N, E> where N: Default, E: Default {
     }
 }
 
-impl<'a, N, E> ExactSizeIterator for Neighbours<'a, N, E>  where N: Default, E: Default {}
-impl<'a, N, E> FusedIterator for Neighbours<'a, N, E>  where N: Default, E: Default{}
+impl<'a, N, E> ExactSizeIterator for Neighbours<'a, N, E>
+where
+    N: Default,
+    E: Default,
+{
+}
+impl<'a, N, E> FusedIterator for Neighbours<'a, N, E>
+where
+    N: Default,
+    E: Default,
+{
+}
 
 /// Iterator created by [Graph::node_edges].
 #[derive(Clone)]

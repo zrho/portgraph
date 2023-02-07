@@ -12,10 +12,18 @@ pub type EdgeMap = BTreeMap<EdgeIndex, EdgeIndex>;
 
 /// Core trait for directed graphs. Exposes unweighted nodes with edge ports.
 pub trait BasePortGraph {
-    type NodeIndicesIterator<'a>: Iterator<Item = NodeIndex> where Self: 'a;
-    type NeighboursIterator<'a>: Iterator<Item = NodeIndex> where Self: 'a;
-    type NodeEdgesIterator<'a>: Iterator<Item = EdgeIndex> where Self: 'a;
-    type EdgeIndicesIterator<'a>: Iterator<Item = EdgeIndex> where Self: 'a;
+    type NodeIndicesIterator<'a>: Iterator<Item = NodeIndex>
+    where
+        Self: 'a;
+    type NeighboursIterator<'a>: Iterator<Item = NodeIndex>
+    where
+        Self: 'a;
+    type NodeEdgesIterator<'a>: Iterator<Item = EdgeIndex>
+    where
+        Self: 'a;
+    type EdgeIndicesIterator<'a>: Iterator<Item = EdgeIndex>
+    where
+        Self: 'a;
 
     /// Create a new graph with no nodes or edges.
     fn new() -> Self;
@@ -261,7 +269,8 @@ pub trait BasePortGraph {
     fn node_edges<'a>(&'a self, n: NodeIndex, direction: Direction) -> Self::NodeEdgesIterator<'a>;
 
     // Iterate over connected nodes.
-    fn neighbours<'a>(&'a self, n: NodeIndex, direction: Direction) -> Self::NeighboursIterator<'a>;
+    fn neighbours<'a>(&'a self, n: NodeIndex, direction: Direction)
+        -> Self::NeighboursIterator<'a>;
 
     /// Iterator over the node indices of the graph.
     ///
@@ -376,14 +385,17 @@ pub trait BasePortGraph {
     /// assert!(graph.node_edges(n0, Direction::Outgoing).eq([e1]));
     /// assert!(graph.node_edges(n1, Direction::Incoming).eq([e1]));
     /// ```
-    fn merge_edges_unweighted(&mut self, from: EdgeIndex, into: EdgeIndex) -> Result<(), MergeEdgesError>;
+    fn merge_edges_unweighted(
+        &mut self,
+        from: EdgeIndex,
+        into: EdgeIndex,
+    ) -> Result<(), MergeEdgesError>;
 
     /// Returns the index of the previous edge that is connected to the node in the given direction.
     fn edge_prev(&self, edge_index: EdgeIndex, direction: Direction) -> Option<EdgeIndex>;
-
 }
 
-pub trait WeightedPortGraph<N, E = (), P = ()> : BasePortGraph {
+pub trait WeightedPortGraph<N, E = (), P = ()>: BasePortGraph {
     type NodeWeightsIterator<'a>: Iterator<Item = (NodeIndex, &'a N)>
     where
         Self: 'a,
@@ -448,7 +460,7 @@ pub trait WeightedPortGraph<N, E = (), P = ()> : BasePortGraph {
     /// assert!(graph.has_edge(e1));
     /// assert_eq!(graph.edge_endpoint(e1, Direction::Incoming), None);
     /// ```
-    /// 
+    ///
     /// TODO: May be a good idea to choose a different name that doesn't conflict with the method in `BasePortGraph`.
     fn remove_node(&mut self, node_index: NodeIndex) -> Option<N>;
 
