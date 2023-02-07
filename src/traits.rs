@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 
 use thiserror::Error;
 
-use crate::layout::Layout;
+use crate::forest::linked::Layout;
 pub use crate::{Direction, EdgeIndex, NodeIndex, PortIndex};
 
 /// Map of updated node indices after a graph operation.
