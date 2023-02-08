@@ -1,9 +1,7 @@
 use std::collections::BTreeMap;
 
-use thiserror::Error;
-
-pub use crate::graph::{Direction, EdgeIndex, NodeIndex, PortIndex};
 use crate::{forest::LinkedForest, memory::EntityIndex};
+pub use super::{Direction, EdgeIndex, NodeIndex, PortIndex, ConnectError, MergeEdgesError};
 
 /// Map of updated node indices after a graph operation.
 pub type NodeMap = BTreeMap<NodeIndex, NodeIndex>;
@@ -550,30 +548,4 @@ pub trait IntoLayout<NI : EntityIndex = NodeIndex> {
 
     /// Get a mutable reference to the node layout of the graph.
     fn layout_mut(&mut self) -> &mut LinkedForest<NI>;
-}
-
-/// Error returned by [Graph::connect] and similar methods.
-#[derive(Debug, Error)]
-pub enum ConnectError {
-    #[error("unknown node")]
-    UnknownNode,
-    #[error("unknown edge")]
-    UnknownEdge,
-    #[error("node mismatch")]
-    NodeMismatch,
-    #[error("edge is already connected")]
-    AlreadyConnected,
-    #[error("can not connect edge relative to itself")]
-    SameEdge,
-    #[error("port index is out of bounds")]
-    OutOfBounds,
-}
-
-/// Error returned by [Graph::merge_edges].
-#[derive(Debug, Error)]
-pub enum MergeEdgesError {
-    #[error("unknown edge")]
-    UnknownEdge,
-    #[error("edge is already connected")]
-    AlreadyConnected,
 }

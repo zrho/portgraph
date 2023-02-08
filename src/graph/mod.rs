@@ -17,8 +17,9 @@ mod traits;
 mod linked;
 
 pub use inline::InlineGraph;
+use thiserror::Error;
 pub use traits::{
-    BasePortGraph, ConnectError, EdgeMap, IntoLayout, MergeEdgesError, NodeMap, WeightedPortGraph,
+    BasePortGraph, EdgeMap, IntoLayout, NodeMap, WeightedPortGraph,
 };
 pub use linked::Graph;
 
@@ -63,4 +64,30 @@ make_entity! {
     pub struct RegionIndex(u32);
     pub struct EdgeIndex(u32);
     pub struct PortIndex(u32);
+}
+
+/// Error returned by [Graph::connect] and similar methods.
+#[derive(Debug, Error)]
+pub enum ConnectError {
+    #[error("unknown node")]
+    UnknownNode,
+    #[error("unknown edge")]
+    UnknownEdge,
+    #[error("node mismatch")]
+    NodeMismatch,
+    #[error("edge is already connected")]
+    AlreadyConnected,
+    #[error("can not connect edge relative to itself")]
+    SameEdge,
+    #[error("port index is out of bounds")]
+    OutOfBounds,
+}
+
+/// Error returned by [Graph::merge_edges].
+#[derive(Debug, Error)]
+pub enum MergeEdgesError {
+    #[error("unknown edge")]
+    UnknownEdge,
+    #[error("edge is already connected")]
+    AlreadyConnected,
 }
