@@ -1,3 +1,4 @@
+//! Secondary graph data structure with doubly linked adjacency lists.
 #[cfg(feature = "pyo3")]
 use pyo3::prelude::*;
 use std::fmt::Debug;
@@ -6,10 +7,11 @@ use std::mem::{replace, take};
 
 use crate::memory::map::SecondaryMap;
 use crate::memory::EntityIndex;
-use crate::Direction;
+use crate::{Direction, Insert};
 
-use super::ConnectError;
+use super::{ConnectError, Graph, GraphMut, GraphSecondary};
 
+/// Secondary graph data structure with doubly linked adjacency lists.
 #[derive(Clone)]
 pub struct LinkedGraph<NI, EI> {
     nodes: SecondaryMap<NI, NodeData<EI>>,
@@ -36,7 +38,7 @@ where
     NI: EntityIndex,
     EI: EntityIndex,
 {
-    pub fn connect_last(&mut self, node: NI, edge: EI, dir: Direction) -> Result<(), ConnectError> {
+    fn connect_last(&mut self, node: NI, edge: EI, dir: Direction) -> Result<(), ConnectError> {
         let edge_data = &mut self.edges[edge];
 
         if edge_data.nodes[dir.index()].is_some() {
@@ -58,12 +60,7 @@ where
         Ok(())
     }
 
-    pub fn connect_first(
-        &mut self,
-        node: NI,
-        edge: EI,
-        dir: Direction,
-    ) -> Result<(), ConnectError> {
+    fn connect_first(&mut self, node: NI, edge: EI, dir: Direction) -> Result<(), ConnectError> {
         let edge_data = &mut self.edges[edge];
 
         if edge_data.nodes[dir.index()].is_some() {
@@ -85,12 +82,7 @@ where
         Ok(())
     }
 
-    pub fn connect_before(
-        &mut self,
-        edge: EI,
-        before: EI,
-        dir: Direction,
-    ) -> Result<(), ConnectError> {
+    fn connect_before(&mut self, edge: EI, before: EI, dir: Direction) -> Result<(), ConnectError> {
         if self.edges[edge].nodes[dir.index()].is_some() {
             return Err(ConnectError::EdgeAlreadyConnected);
         }
@@ -121,12 +113,7 @@ where
         Ok(())
     }
 
-    pub fn connect_after(
-        &mut self,
-        edge: EI,
-        after: EI,
-        dir: Direction,
-    ) -> Result<(), ConnectError> {
+    fn connect_after(&mut self, edge: EI, after: EI, dir: Direction) -> Result<(), ConnectError> {
         if self.edges[edge].nodes[dir.index()].is_some() {
             return Err(ConnectError::EdgeAlreadyConnected);
         }
@@ -157,7 +144,7 @@ where
         Ok(())
     }
 
-    pub fn connect_at(
+    fn connect_at(
         &mut self,
         node: NI,
         edge: EI,
@@ -168,44 +155,6 @@ where
             Some(before) => self.connect_before(edge, before, dir),
             None => self.connect_last(node, edge, dir),
         }
-    }
-
-    pub fn node_edges(&self, node: NI, dir: Direction) -> NodeEdges<'_, NI, EI> {
-        let node_data = &self.nodes[node];
-        NodeEdges {
-            graph: self,
-            next: node_data.first[dir.index()],
-            prev: node_data.last[dir.index()],
-            len: node_data.len[dir.index()] as usize,
-            direction: dir,
-        }
-    }
-
-    pub fn disconnect(&mut self, edge: EI, dir: Direction) -> Option<NI> {
-        let Some(edge_data) = self.edges.get_mut(edge) else {
-            return None;
-        };
-
-        let node = take(&mut edge_data.nodes[dir.index()]);
-        let prev = take(&mut edge_data.prev[dir.index()]);
-        let next = take(&mut edge_data.next[dir.index()]);
-
-        if let Some(node) = node {
-            let node_data = &mut self.nodes[node];
-            node_data.len[dir.index()] -= 1;
-
-            match prev {
-                Some(prev) => self.edges[prev].next[dir.index()] = next,
-                None => node_data.first[dir.index()] = next,
-            }
-
-            match next {
-                Some(next) => self.edges[next].prev[dir.index()] = prev,
-                None => node_data.last[dir.index()] = prev,
-            }
-        }
-
-        node
     }
 
     #[inline]
@@ -227,10 +176,140 @@ where
     pub fn edge_last(&self, node: NI, dir: Direction) -> Option<EI> {
         self.nodes[node].last[dir.index()]
     }
+}
 
-    #[inline]
-    pub fn edge_endpoint(&self, edge: EI, dir: Direction) -> Option<NI> {
-        self.edges[edge].nodes[dir.index()]
+impl<NI, EI> Graph for LinkedGraph<NI, EI>
+where
+    NI: EntityIndex,
+    EI: EntityIndex,
+{
+    type Node = NI;
+    type Edge = EI;
+
+    type NodeEdges<'a> = NodeEdges<'a, NI, EI>
+    where
+        Self: 'a;
+
+    fn node_edges(&self, node: Self::Node, dir: Direction) -> Self::NodeEdges<'_> {
+        let node_data = &self.nodes[node];
+        NodeEdges {
+            graph: self,
+            next: node_data.first[dir.index()],
+            prev: node_data.last[dir.index()],
+            len: node_data.len[dir.index()] as usize,
+            direction: dir,
+        }
+    }
+
+    fn edge_node(&self, edge: Self::Edge, dir: Direction) -> Option<Self::Node> {
+        self.edges.get(edge)?.nodes[dir.index()]
+    }
+
+    fn edge_endpoint(&self, edge: Self::Edge, dir: Direction) -> Option<(Self::Node, usize)> {
+        let edge_data = self.edges.get(edge)?;
+        let node = edge_data.nodes[dir.index()]?;
+        let port = self.node_edges(node, dir).position(|e| e == edge)?;
+        Some((node, port))
+    }
+}
+
+impl<NI, EI> GraphMut for LinkedGraph<NI, EI>
+where
+    NI: EntityIndex,
+    EI: EntityIndex,
+{
+    fn connect(
+        &mut self,
+        node: Self::Node,
+        edge: Self::Edge,
+        position: Insert<Self::Edge>,
+        direction: Direction,
+    ) -> Result<(), ConnectError> {
+        // TODO: For the relative connection, check that the node matches
+        match position {
+            Insert::First => self.connect_first(node, edge, direction),
+            Insert::Last => self.connect_last(node, edge, direction),
+            Insert::Before(before) => self.connect_before(edge, before, direction),
+            Insert::After(after) => self.connect_after(edge, after, direction),
+            Insert::Index(index) => self.connect_at(node, edge, index, direction),
+        }
+    }
+
+    fn connect_many<I>(
+        &mut self,
+        node: Self::Node,
+        edges: I,
+        position: Insert<Self::Edge>,
+        direction: Direction,
+    ) -> Result<(), ConnectError>
+    where
+        I: IntoIterator<Item = Self::Edge>,
+    {
+        todo!()
+    }
+
+    fn disconnect(&mut self, edge: Self::Edge, direction: Direction) -> Option<Self::Node> {
+        let Some(edge_data) = self.edges.get_mut(edge) else {
+            return None;
+        };
+
+        let node = take(&mut edge_data.nodes[direction.index()]);
+        let prev = take(&mut edge_data.prev[direction.index()]);
+        let next = take(&mut edge_data.next[direction.index()]);
+
+        if let Some(node) = node {
+            let node_data = &mut self.nodes[node];
+            node_data.len[direction.index()] -= 1;
+
+            match prev {
+                Some(prev) => self.edges[prev].next[direction.index()] = next,
+                None => node_data.first[direction.index()] = next,
+            }
+
+            match next {
+                Some(next) => self.edges[next].prev[direction.index()] = prev,
+                None => node_data.last[direction.index()] = prev,
+            }
+        }
+
+        node
+    }
+
+    fn clear_node(&mut self, node: Self::Node) {
+        let Some(node_data) = self.nodes.take(node) else {
+            return;
+        };
+
+        for direction in Direction::ALL {
+            let mut edge_next = node_data.first[direction.index()];
+
+            while let Some(edge) = edge_next {
+                let mut edge_data = &mut self.edges[edge];
+                edge_data.nodes[direction.index()] = None;
+                edge_data.prev[direction.index()] = None;
+                edge_next = take(&mut edge_data.next[direction.index()]);
+            }
+        }
+    }
+
+    fn clear_edge(&mut self, edge: Self::Edge) {
+        for direction in Direction::ALL {
+            self.disconnect(edge, direction);
+        }
+    }
+}
+
+impl<NI, EI> GraphSecondary for LinkedGraph<NI, EI>
+where
+    NI: EntityIndex,
+    EI: EntityIndex,
+{
+    fn rekey_node(&mut self, old: Self::Node, new: Self::Node) {
+        todo!()
+    }
+
+    fn rekey_edge(&mut self, old: Self::Edge, new: Self::Edge) {
+        todo!()
     }
 }
 

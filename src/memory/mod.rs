@@ -18,6 +18,7 @@ pub trait EntityIndex: Copy + Eq + Default {
     fn index(self) -> usize;
 }
 
+#[macro_export]
 macro_rules! make_entity {
     ($($(#[$attr:meta])* $vis:vis struct $name:ident(u32);)*) => { $(
         #[repr(transparent)]
@@ -51,7 +52,6 @@ macro_rules! make_entity {
 
     )*};
 }
-pub(crate) use make_entity;
 
 macro_rules! int_entity_impl {
     ($entity:ident) => {

@@ -4,7 +4,7 @@
 // pub mod substitute;
 // pub mod toposort;
 
-pub mod connectivity;
+pub mod connections;
 pub mod forest;
 pub mod graph;
 pub mod memory;
@@ -38,6 +38,21 @@ impl Direction {
             Direction::Outgoing => Direction::Incoming,
         }
     }
+}
+
+/// Position in an ordered collection at which to insert a new element.
+#[derive(Debug, Clone, Copy)]
+pub enum Insert<T> {
+    /// Insert as the first element.
+    First,
+    /// Insert as the last element.
+    Last,
+    /// Insert directly before a given element.
+    Before(T),
+    /// Insert directly after a given element.
+    After(T),
+    /// Insert after a given number of elements.
+    Index(usize),
 }
 
 // #[cfg(feature = "pyo3")]
