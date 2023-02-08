@@ -1,8 +1,8 @@
-use std::{iter, ops::Range};
+use std::ops::Range;
 use tinyvec::TinyVec;
 
 use crate::{
-    graph::{BasePortGraph, ConnectError, Direction},
+    graph::{ConnectError, Direction},
     memory::{map::SecondaryMap, EntityIndex},
 };
 

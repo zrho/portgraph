@@ -2,13 +2,11 @@ use criterion::{
     black_box, criterion_group, criterion_main, AxisScale, BenchmarkId, Criterion,
     PlotConfiguration,
 };
-use portgraph::graph::{BasePortGraph, Direction, Graph, WeightedPortGraph};
+use portgraph::graph::{Direction, Graph};
 
-fn make_line_graph<G>(size: usize) -> G
-where
-    G: WeightedPortGraph<usize, (usize, usize, usize), ()>,
+fn make_line_graph(size: usize) -> Graph<usize, (usize, usize, usize)>
 {
-    let mut graph = G::with_capacity(size, size * 2, 0);
+    let mut graph = Graph::with_capacity(size, size * 2, 0);
     let edge0 = graph.add_edge((0, 0, 1));
     let edge1 = graph.add_edge((0, 0, 1));
     let mut prev_node = graph.add_node_with_edges(0, [], [edge0, edge1]).unwrap();
@@ -115,7 +113,7 @@ fn bench_make_portgraph(c: &mut Criterion) {
             &size,
             |b, size| {
                 b.iter(|| {
-                    black_box(make_line_graph::<Graph<usize, (usize, usize, usize)>>(
+                    black_box(make_line_graph(
                         *size,
                     ))
                 })
@@ -139,7 +137,7 @@ fn bench_clone_portgraph(c: &mut Criterion) {
             BenchmarkId::new("clone_line_graph", size),
             &size,
             |b, size| {
-                let graph = make_line_graph::<Graph<usize, (usize, usize, usize)>>(*size);
+                let graph = make_line_graph(*size);
                 b.iter(|| black_box(graph.clone()))
             },
         );

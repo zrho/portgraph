@@ -13,14 +13,15 @@
 //! [`Slab`]: crate::memory::Slab
 
 mod inline;
-mod traits;
 mod linked;
+pub mod components;
+pub mod traits;
+
+use std::collections::BTreeMap;
 
 pub use inline::InlineGraph;
 use thiserror::Error;
-pub use traits::{
-    BasePortGraph, EdgeMap, IntoLayout, NodeMap, WeightedPortGraph,
-};
+pub use traits::WeightedGraph;
 pub use linked::Graph;
 
 use crate::memory::make_entity;
@@ -65,6 +66,12 @@ make_entity! {
     pub struct EdgeIndex(u32);
     pub struct PortIndex(u32);
 }
+
+/// Map of updated node indices after a graph operation.
+pub type NodeMap = BTreeMap<NodeIndex, NodeIndex>;
+
+/// Map of updated edge indices after a graph operation.
+pub type EdgeMap = BTreeMap<EdgeIndex, EdgeIndex>;
 
 /// Error returned by [Graph::connect] and similar methods.
 #[derive(Debug, Error)]

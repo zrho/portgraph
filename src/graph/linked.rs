@@ -4,8 +4,8 @@ use std::fmt::{self, Debug};
 use std::iter::{self, FusedIterator};
 
 use crate::graph::{
-    BasePortGraph, ConnectError, Direction, EdgeIndex, EdgeMap, MergeEdgesError, NodeIndex,
-    NodeMap, PortIndex, WeightedPortGraph,
+    ConnectError, Direction, EdgeIndex, EdgeMap, MergeEdgesError, NodeIndex,
+    NodeMap, PortIndex,
 };
 use crate::memory::{slab, Slab};
 
@@ -77,28 +77,28 @@ where
     }
 }
 
-impl<N, E> BasePortGraph for Graph<N, E>
+type NodeIndicesIterator<'a, N> = NodeIndices<'a, N>;
+type NeighboursIterator<'a, N, E> = Neighbours<'a, N, E>;
+type NodeEdgesIterator<'a, N, E> = NodeEdges<'a, N, E>;
+type EdgeIndicesIterator<'a, E> = EdgeIndices<'a, E>;
+
+impl<N, E> Graph<N, E>
 where
     N: Default,
     E: Default,
 {
-    type NodeIndicesIterator<'a> = NodeIndices<'a, N> where Self: 'a;
-    type NeighboursIterator<'a> = Neighbours<'a, N, E> where Self: 'a;
-    type NodeEdgesIterator<'a> = NodeEdges<'a, N, E> where Self: 'a;
-    type EdgeIndicesIterator<'a> = EdgeIndices<'a, E> where Self: 'a;
-
-    fn new() -> Self {
+    pub fn new() -> Self {
         Self::with_capacity(0, 0, 0)
     }
 
-    fn with_capacity(nodes: usize, edges: usize, _ports: usize) -> Self {
+    pub fn with_capacity(nodes: usize, edges: usize, _ports: usize) -> Self {
         Self {
             nodes: Slab::with_capacity(nodes),
             edges: Slab::with_capacity(edges),
         }
     }
 
-    fn add_node_unweighted(&mut self) -> NodeIndex {
+    pub fn add_node_unweighted(&mut self) -> NodeIndex {
         self.nodes.insert(Node {
             weight: Default::default(),
             edges: [None; 2],
@@ -106,11 +106,11 @@ where
     }
 
     #[inline(always)]
-    fn next_node_index(&self) -> NodeIndex {
+    pub fn next_node_index(&self) -> NodeIndex {
         self.nodes.next_index()
     }
 
-    fn add_node_with_edges_unweighted(
+    pub fn add_node_with_edges_unweighted(
         &mut self,
         incoming: impl IntoIterator<Item = EdgeIndex>,
         outgoing: impl IntoIterator<Item = EdgeIndex>,
@@ -121,7 +121,7 @@ where
         Ok(node)
     }
 
-    fn add_edge_unweighted(&mut self) -> EdgeIndex {
+    pub fn add_edge_unweighted(&mut self) -> EdgeIndex {
         self.edges.insert(Edge {
             weight: Default::default(),
             next: [None; 2],
@@ -129,7 +129,7 @@ where
         })
     }
 
-    fn remove_node_unweighted(&mut self, node_index: NodeIndex) -> bool {
+    pub fn remove_node_unweighted(&mut self, node_index: NodeIndex) -> bool {
         let Some(node )= self.nodes.remove(node_index) else {return false;};
 
         for direction in Direction::ALL {
@@ -145,21 +145,21 @@ where
         true
     }
 
-    fn remove_edge_unweighted(&mut self, e: EdgeIndex) -> bool {
+    pub fn remove_edge_unweighted(&mut self, e: EdgeIndex) -> bool {
         self.disconnect(e, Direction::Incoming);
         self.disconnect(e, Direction::Outgoing);
         self.edges.remove(e).is_some()
     }
 
-    fn has_node(&self, n: NodeIndex) -> bool {
+    pub fn has_node(&self, n: NodeIndex) -> bool {
         self.nodes.contains(n)
     }
 
-    fn has_edge(&self, e: EdgeIndex) -> bool {
+    pub fn has_edge(&self, e: EdgeIndex) -> bool {
         self.edges.contains(e)
     }
 
-    fn connect_after(
+    pub fn connect_after(
         &mut self,
         node: NodeIndex,
         edge: EdgeIndex,
@@ -188,7 +188,7 @@ where
         Ok(())
     }
 
-    fn connect_first(
+    pub fn connect_first(
         &mut self,
         node: NodeIndex,
         edge: EdgeIndex,
@@ -208,7 +208,7 @@ where
         Ok(())
     }
 
-    fn connect(
+    pub fn connect(
         &mut self,
         node: NodeIndex,
         edge: EdgeIndex,
@@ -221,7 +221,7 @@ where
         }
     }
 
-    fn connect_many(
+    pub fn connect_many(
         &mut self,
         node: NodeIndex,
         edges: impl IntoIterator<Item = EdgeIndex>,
@@ -236,7 +236,7 @@ where
         Ok(())
     }
 
-    fn connect_last(
+    pub fn connect_last(
         &mut self,
         node: NodeIndex,
         edge: EdgeIndex,
@@ -246,7 +246,7 @@ where
         self.connect(node, edge, direction, edge_prev)
     }
 
-    fn disconnect(&mut self, edge_index: EdgeIndex, direction: Direction) {
+    pub fn disconnect(&mut self, edge_index: EdgeIndex, direction: Direction) {
         if !self.has_edge(edge_index) {
             return;
         }
@@ -267,7 +267,7 @@ where
         }
     }
 
-    fn replace_connection(
+    pub fn replace_connection(
         &mut self,
         prev: EdgeIndex,
         new: EdgeIndex,
@@ -283,7 +283,7 @@ where
         Ok(())
     }
 
-    fn insert_edge(
+    pub fn insert_edge(
         &mut self,
         node: NodeIndex,
         edge: EdgeIndex,
@@ -299,11 +299,11 @@ where
         self.connect(node, edge, direction, edge_prev)
     }
 
-    fn edge_endpoint(&self, e: EdgeIndex, direction: Direction) -> Option<NodeIndex> {
+    pub fn edge_endpoint(&self, e: EdgeIndex, direction: Direction) -> Option<NodeIndex> {
         self.edges.get(e)?.nodes[direction.index()]
     }
 
-    fn node_edges<'a>(&'a self, n: NodeIndex, direction: Direction) -> Self::NodeEdgesIterator<'a> {
+    pub fn node_edges<'a>(&'a self, n: NodeIndex, direction: Direction) -> NodeEdgesIterator<'a, N, E> {
         let next = self
             .nodes
             .get(n)
@@ -316,11 +316,11 @@ where
         }
     }
 
-    fn neighbours<'a>(
+    pub fn neighbours<'a>(
         &'a self,
         n: NodeIndex,
         direction: Direction,
-    ) -> Self::NeighboursIterator<'a> {
+    ) -> NeighboursIterator<'a, N, E> {
         Neighbours {
             edges: self.node_edges(n, direction),
             graph: self,
@@ -328,34 +328,34 @@ where
         }
     }
 
-    fn node_indices<'a>(&'a self) -> Self::NodeIndicesIterator<'a> {
+    pub fn node_indices<'a>(&'a self) -> NodeIndicesIterator<'a, N> {
         NodeIndices(self.nodes.iter())
     }
 
-    fn edge_indices<'a>(&'a self) -> Self::EdgeIndicesIterator<'a> {
+    pub fn edge_indices<'a>(&'a self) -> EdgeIndicesIterator<'a, E> {
         EdgeIndices(self.edges.iter())
     }
 
     #[inline]
-    fn node_count(&self) -> usize {
+    pub fn node_count(&self) -> usize {
         self.nodes.len()
     }
 
     #[inline]
-    fn edge_count(&self) -> usize {
+    pub fn edge_count(&self) -> usize {
         self.edges.len()
     }
 
-    fn port_count(&self) -> usize {
+    pub fn port_count(&self) -> usize {
         todo!()
     }
 
     #[inline]
-    fn is_empty(&self) -> bool {
+    pub fn is_empty(&self) -> bool {
         self.nodes.is_empty() && self.edges.is_empty()
     }
 
-    fn insert_graph(&mut self, other: Self) -> (NodeMap, EdgeMap) {
+    pub fn insert_graph(&mut self, other: Self) -> (NodeMap, EdgeMap) {
         let node_map: NodeMap = other
             .nodes
             .into_iter()
@@ -388,7 +388,7 @@ where
         (node_map, edge_map)
     }
 
-    fn compact(&mut self) -> (NodeMap, EdgeMap) {
+    pub fn compact(&mut self) -> (NodeMap, EdgeMap) {
         let mut node_map = NodeMap::new();
         let mut edge_map = EdgeMap::new();
 
@@ -411,12 +411,12 @@ where
         (node_map, edge_map)
     }
 
-    fn shrink_to_fit(&mut self) {
+    pub fn shrink_to_fit(&mut self) {
         self.edges.shrink_to_fit();
         self.nodes.shrink_to_fit();
     }
 
-    fn merge_edges_unweighted(
+    pub fn merge_edges_unweighted(
         &mut self,
         from: EdgeIndex,
         into: EdgeIndex,
@@ -425,7 +425,7 @@ where
     }
 
     /// Returns the index of the previous edge that is connected to the node in the given direction.
-    fn edge_prev(&self, edge_index: EdgeIndex, direction: Direction) -> Option<EdgeIndex> {
+    pub fn edge_prev(&self, edge_index: EdgeIndex, direction: Direction) -> Option<EdgeIndex> {
         let node_index = self.edge_endpoint(edge_index, direction)?;
 
         self.node_edges(node_index, direction)
@@ -436,23 +436,24 @@ where
     }
 }
 
-impl<N, E> WeightedPortGraph<N, E, ()> for Graph<N, E>
+type NodeWeightsIterator<'a, N> = NodeWeights<'a, N>;
+type EdgeWeightsIterator<'a, E> = EdgeWeights<'a, E>;
+type PortWeightsIterator<'a> = iter::Empty<(PortIndex, &'a ())>;
+
+impl<N, E> Graph<N, E>
 where
     N: Default,
     E: Default,
 {
-    type NodeWeightsIterator<'a> = NodeWeights<'a, N> where Self: 'a, N: 'a;
-    type EdgeWeightsIterator<'a> = EdgeWeights<'a, E> where Self: 'a, E: 'a;
-    type PortWeightsIterator<'a> = iter::Empty<(PortIndex, &'a ())> where Self: 'a;
 
-    fn add_node(&mut self, weight: N) -> NodeIndex {
+    pub fn add_node(&mut self, weight: N) -> NodeIndex {
         self.nodes.insert(Node {
             weight,
             edges: [None; 2],
         })
     }
 
-    fn add_node_with_edges(
+    pub fn add_node_with_edges(
         &mut self,
         weight: N,
         incoming: impl IntoIterator<Item = EdgeIndex>,
@@ -464,7 +465,7 @@ where
         Ok(node)
     }
 
-    fn add_edge(&mut self, weight: E) -> EdgeIndex {
+    pub fn add_edge(&mut self, weight: E) -> EdgeIndex {
         self.edges.insert(Edge {
             weight,
             next: [None; 2],
@@ -472,7 +473,7 @@ where
         })
     }
 
-    fn remove_node(&mut self, node_index: NodeIndex) -> Option<N> {
+    pub fn remove_node(&mut self, node_index: NodeIndex) -> Option<N> {
         let node = self.nodes.remove(node_index)?;
 
         for direction in Direction::ALL {
@@ -488,50 +489,50 @@ where
         Some(node.weight)
     }
 
-    fn remove_edge(&mut self, e: EdgeIndex) -> Option<E> {
+    pub fn remove_edge(&mut self, e: EdgeIndex) -> Option<E> {
         self.disconnect(e, Direction::Incoming);
         self.disconnect(e, Direction::Outgoing);
         let edge = self.edges.remove(e)?;
         Some(edge.weight)
     }
 
-    fn node_weight(&self, a: NodeIndex) -> Option<&N> {
+    pub fn node_weight(&self, a: NodeIndex) -> Option<&N> {
         Some(&self.nodes.get(a)?.weight)
     }
 
-    fn node_weight_mut(&mut self, a: NodeIndex) -> Option<&mut N> {
+    pub fn node_weight_mut(&mut self, a: NodeIndex) -> Option<&mut N> {
         Some(&mut self.nodes.get_mut(a)?.weight)
     }
 
-    fn node_weights<'a>(&'a self) -> Self::NodeWeightsIterator<'a> {
+    pub fn node_weights<'a>(&'a self) -> NodeWeightsIterator<'a, N> {
         NodeWeights(self.nodes.iter())
     }
 
-    fn edge_weight(&self, e: EdgeIndex) -> Option<&E> {
+    pub fn edge_weight(&self, e: EdgeIndex) -> Option<&E> {
         Some(&self.edges.get(e)?.weight)
     }
 
-    fn edge_weight_mut(&mut self, e: EdgeIndex) -> Option<&mut E> {
+    pub fn edge_weight_mut(&mut self, e: EdgeIndex) -> Option<&mut E> {
         Some(&mut self.edges.get_mut(e)?.weight)
     }
 
-    fn edge_weights<'a>(&'a self) -> Self::EdgeWeightsIterator<'a> {
+    pub fn edge_weights<'a>(&'a self) -> EdgeWeightsIterator<'a, E> {
         EdgeWeights(self.edges.iter())
     }
 
-    fn port_weight(&self, _e: PortIndex) -> Option<&()> {
+    pub fn port_weight(&self, _e: PortIndex) -> Option<&()> {
         None
     }
 
-    fn port_weight_mut(&mut self, _e: PortIndex) -> Option<&mut ()> {
+    pub fn port_weight_mut(&mut self, _e: PortIndex) -> Option<&mut ()> {
         None
     }
 
-    fn port_weights<'a>(&'a self) -> Self::PortWeightsIterator<'a> {
+    pub fn port_weights<'a>(&'a self) -> PortWeightsIterator<'a> {
         iter::empty()
     }
 
-    fn merge_edges(&mut self, from: EdgeIndex, into: EdgeIndex) -> Result<E, MergeEdgesError> {
+    pub fn merge_edges(&mut self, from: EdgeIndex, into: EdgeIndex) -> Result<E, MergeEdgesError> {
         if !self.has_edge(from) | !self.has_edge(into) {
             return Err(MergeEdgesError::UnknownEdge);
         }

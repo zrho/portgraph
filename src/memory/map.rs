@@ -67,6 +67,12 @@ impl<K: EntityIndex, V: Clone> SecondaryMap<K, V> {
         ))
     }
 
+    pub fn push(&mut self, value: V) -> K {
+        let index = self.values.len();
+        self.values.push(value);
+        K::new(index)
+    }
+
     /// Changes the key of an entry.
     ///
     /// It is assumed but not checked that the entry at `old_index` was empty.
