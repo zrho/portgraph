@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 use thiserror::Error;
 
 use crate::forest::LinkedForest;
-pub use crate::{Direction, EdgeIndex, NodeIndex, PortIndex};
+pub use crate::graph::{Direction, EdgeIndex, NodeIndex, PortIndex};
 
 /// Map of updated node indices after a graph operation.
 pub type NodeMap = BTreeMap<NodeIndex, NodeIndex>;
@@ -43,8 +43,7 @@ pub trait BasePortGraph {
     /// # Example
     ///
     /// ```
-    /// # use portgraph::graph::{Graph, Direction};
-    /// # use portgraph::traits::BasePortGraph;
+    /// # use portgraph::graph::{Graph, Direction, BasePortGraph};
     /// let mut graph = Graph::<(), ()>::new();
     ///
     /// let e1 = graph.add_edge_unweighted();
@@ -73,8 +72,7 @@ pub trait BasePortGraph {
     /// # Example
     ///
     /// ```
-    /// # use portgraph::graph::{Graph, Direction};
-    /// # use portgraph::traits::BasePortGraph;
+    /// # use portgraph::graph::{Graph, Direction, BasePortGraph};
     /// let mut graph = Graph::<(), ()>::new();
     ///
     /// let e1 = graph.add_edge_unweighted();
@@ -97,8 +95,7 @@ pub trait BasePortGraph {
     /// # Example
     ///
     /// ```
-    /// # use portgraph::graph::{Graph, Direction};
-    /// # use portgraph::traits::BasePortGraph;
+    /// # use portgraph::graph::{Graph, Direction, BasePortGraph};
     /// let mut graph = Graph::<(), ()>::new();
     ///
     /// let e1 = graph.add_edge_unweighted();
@@ -125,8 +122,7 @@ pub trait BasePortGraph {
     /// # Example
     ///
     /// ```
-    /// # use portgraph::graph::{Graph, Direction};
-    /// # use portgraph::traits::BasePortGraph;
+    /// # use portgraph::graph::{Graph, Direction, BasePortGraph};
     /// let mut graph = Graph::<(), ()>::new();
     ///
     /// let e1 = graph.add_edge_unweighted();
@@ -153,8 +149,7 @@ pub trait BasePortGraph {
     /// # Example
     ///
     /// ```
-    /// # use portgraph::graph::{Graph, Direction};
-    /// # use portgraph::traits::BasePortGraph;
+    /// # use portgraph::graph::{Graph, Direction, BasePortGraph};
     /// let mut graph = Graph::<(), ()>::new();
     ///
     /// let e1 = graph.add_edge_unweighted();
@@ -209,8 +204,7 @@ pub trait BasePortGraph {
     /// # Example
     ///
     /// ```
-    /// # use portgraph::graph::{Graph, Direction};
-    /// # use portgraph::traits::BasePortGraph;
+    /// # use portgraph::graph::{Graph, Direction, BasePortGraph};
     /// let mut graph = Graph::<(), ()>::new();
     ///
     /// let e1 = graph.add_edge_unweighted();
@@ -241,8 +235,7 @@ pub trait BasePortGraph {
     /// # Example
     ///
     /// ```
-    /// # use portgraph::graph::{Graph, Direction};
-    /// # use portgraph::traits::BasePortGraph;
+    /// # use portgraph::graph::{Graph, Direction, BasePortGraph};
     /// let mut graph = Graph::<(), ()>::new();
     ///
     /// let e1 = graph.add_edge_unweighted();
@@ -278,8 +271,7 @@ pub trait BasePortGraph {
     /// # Example
     ///
     /// ```
-    /// # use portgraph::graph::{Graph, Direction};
-    /// # use portgraph::traits::BasePortGraph;
+    /// # use portgraph::graph::{Graph, Direction, BasePortGraph};
     /// let mut graph = Graph::<(), ()>::new();
     ///
     /// let n0 = graph.add_node_unweighted();
@@ -331,8 +323,7 @@ pub trait BasePortGraph {
     /// # Example
     ///
     /// ```
-    /// # use portgraph::graph::{Graph, Direction};
-    /// # use portgraph::traits::BasePortGraph;
+    /// # use portgraph::graph::{Graph, Direction, BasePortGraph};
     /// # use std::collections::BTreeMap;
     /// let mut graph = Graph::<(), ()>::new();
     ///
@@ -372,8 +363,7 @@ pub trait BasePortGraph {
     /// # Example
     ///
     /// ```
-    /// # use portgraph::graph::{Graph, Direction};
-    /// # use portgraph::traits::BasePortGraph;
+    /// # use portgraph::graph::{Graph, Direction, BasePortGraph};
     /// let mut graph = Graph::<(), ()>::new();
     ///
     /// let e1 = graph.add_edge_unweighted();
@@ -418,8 +408,7 @@ pub trait WeightedPortGraph<N, E = (), P = ()>: BasePortGraph {
     /// # Example
     ///
     /// ```
-    /// # use portgraph::graph::{Graph, Direction};
-    /// # use portgraph::traits::{BasePortGraph, WeightedPortGraph};
+    /// # use portgraph::graph::{Graph, Direction, BasePortGraph, WeightedPortGraph};
     /// let mut graph = Graph::<i8, i8>::new();
     ///
     /// let e1 = graph.add_edge(-1);
@@ -449,8 +438,7 @@ pub trait WeightedPortGraph<N, E = (), P = ()>: BasePortGraph {
     /// # Example
     ///
     /// ```
-    /// # use portgraph::graph::{Graph, Direction};
-    /// # use portgraph::traits::{BasePortGraph, WeightedPortGraph};
+    /// # use portgraph::graph::{Graph, Direction, BasePortGraph, WeightedPortGraph};
     /// let mut graph = Graph::<i8, i8>::new();
     ///
     /// let e1 = graph.add_edge(-1);
@@ -475,8 +463,7 @@ pub trait WeightedPortGraph<N, E = (), P = ()>: BasePortGraph {
     /// # Example
     ///
     /// ```
-    /// # use portgraph::graph::{Graph, Direction};
-    /// # use portgraph::traits::{BasePortGraph, WeightedPortGraph};
+    /// # use portgraph::graph::{Graph, Direction, BasePortGraph, WeightedPortGraph};
     /// let mut graph = Graph::<i8, i8>::new();
     ///
     /// let e1 = graph.add_edge(-1);
@@ -532,8 +519,7 @@ pub trait WeightedPortGraph<N, E = (), P = ()>: BasePortGraph {
     /// # Example
     ///
     /// ```
-    /// # use portgraph::graph::{Graph, Direction};
-    /// # use portgraph::traits::{BasePortGraph, WeightedPortGraph};
+    /// # use portgraph::graph::{Graph, Direction, BasePortGraph, WeightedPortGraph};
     /// let mut graph = Graph::<i8, i8>::new();
     ///
     /// let e1 = graph.add_edge(1);
@@ -550,7 +536,7 @@ pub trait WeightedPortGraph<N, E = (), P = ()>: BasePortGraph {
 }
 
 /// Access the node layout of a graph.
-trait IntoLayout {
+pub trait IntoLayout {
     /// Get a reference to the node layout of the graph.
     fn layout(&self) -> &LinkedForest<NodeIndex>;
 

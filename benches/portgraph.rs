@@ -2,12 +2,12 @@ use criterion::{
     black_box, criterion_group, criterion_main, AxisScale, BenchmarkId, Criterion,
     PlotConfiguration,
 };
-use portgraph::graph_test;
-use portgraph::{graph::Graph, Direction, PortGraph};
-use portgraph::traits::{BasePortGraph, WeightedPortGraph};
+use portgraph::graph::{BasePortGraph, Direction, Graph, WeightedPortGraph};
 
 fn make_line_graph<G>(size: usize) -> G
-    where G: WeightedPortGraph<usize, (usize, usize, usize), ()> {
+where
+    G: WeightedPortGraph<usize, (usize, usize, usize), ()>,
+{
     let mut graph = G::with_capacity(size, size * 2, 0);
     let edge0 = graph.add_edge((0, 0, 1));
     let edge1 = graph.add_edge((0, 0, 1));
@@ -23,40 +23,6 @@ fn make_line_graph<G>(size: usize) -> G
         let node = graph
             .add_node_with_edges(i, [edge_in0, edge_in1], [edge_out0, edge_out1])
             .unwrap();
-        prev_node = node;
-    }
-
-    graph
-}
-
-// fn make_line_graph_test(size: usize) -> graph_test::Graph<usize, (usize, usize, usize)> {
-//     let mut graph = graph_test::Graph::with_capacity(size, size * 2);
-//     let edge0 = graph.add_edge((0, 0, 1));
-//     let edge1 = graph.add_edge((0, 0, 1));
-//     let mut prev_node = graph.add_node_with_edges(0, [], [edge0, edge1]);
-
-//     for i in 1..size {
-//         let node_edges = graph.node_edges(prev_node, Direction::Outgoing);
-//         let edge_in0 = node_edges[0];
-//         let edge_in1 = node_edges[1];
-//         let edge_out0 = graph.add_edge((i, i, i + 1));
-//         let edge_out1 = graph.add_edge((i, i, i + 1));
-//         let node = graph.add_node_with_edges(i, [edge_in0, edge_in1], [edge_out0, edge_out1]);
-//         prev_node = node;
-//     }
-
-//     graph
-// }
-
-fn make_line_hypergraph(size: usize) -> PortGraph<usize, usize, usize> {
-    let mut graph = PortGraph::with_capacity(size, size, size * 2);
-    let mut prev_node = graph.add_node_with_ports(0, [0, 1]);
-
-    for i in 1..size {
-        let node = graph.add_node_with_ports(i, [i, i + 1]);
-        let edge = graph.add_edge(i);
-        graph.connect(graph.node_ports(prev_node)[1], edge);
-        graph.connect(graph.node_ports(node)[0], edge);
         prev_node = node;
     }
 
@@ -147,14 +113,13 @@ fn bench_make_portgraph(c: &mut Criterion) {
         g.bench_with_input(
             BenchmarkId::new("make_line_graph", size),
             &size,
-            |b, size| b.iter(|| black_box(
-                make_line_graph::<Graph<usize, (usize, usize,usize)>>(*size))
-            ),
-        );
-        g.bench_with_input(
-            BenchmarkId::new("make_line_hypergraph", size),
-            &size,
-            |b, size| b.iter(|| black_box(make_line_hypergraph(*size))),
+            |b, size| {
+                b.iter(|| {
+                    black_box(make_line_graph::<Graph<usize, (usize, usize, usize)>>(
+                        *size,
+                    ))
+                })
+            },
         );
         // g.bench_with_input(
         //     BenchmarkId::new("make_line_graph_test", size),
@@ -174,15 +139,7 @@ fn bench_clone_portgraph(c: &mut Criterion) {
             BenchmarkId::new("clone_line_graph", size),
             &size,
             |b, size| {
-                let graph = make_line_graph::<Graph<usize, (usize, usize,usize)>>(*size);
-                b.iter(|| black_box(graph.clone()))
-            },
-        );
-        g.bench_with_input(
-            BenchmarkId::new("clone_line_hypergraph", size),
-            &size,
-            |b, size| {
-                let graph = make_line_hypergraph(*size);
+                let graph = make_line_graph::<Graph<usize, (usize, usize, usize)>>(*size);
                 b.iter(|| black_box(graph.clone()))
             },
         );

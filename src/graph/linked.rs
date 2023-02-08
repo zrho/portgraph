@@ -3,12 +3,11 @@ use pyo3::prelude::*;
 use std::fmt::{self, Debug};
 use std::iter::{self, FusedIterator};
 
-use crate::memory::{slab, Slab};
-use crate::traits::{
-    BasePortGraph, ConnectError, EdgeMap, MergeEdgesError, NodeMap, WeightedPortGraph,
+use crate::graph::{
+    BasePortGraph, ConnectError, Direction, EdgeIndex, EdgeMap, MergeEdgesError, NodeIndex,
+    NodeMap, PortIndex, WeightedPortGraph,
 };
-use crate::PortIndex;
-pub use crate::{Direction, EdgeIndex, NodeIndex};
+use crate::memory::{slab, Slab};
 
 /// The graph's node type.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -520,11 +519,11 @@ where
         EdgeWeights(self.edges.iter())
     }
 
-    fn port_weight(&self, _e: crate::PortIndex) -> Option<&()> {
+    fn port_weight(&self, _e: PortIndex) -> Option<&()> {
         None
     }
 
-    fn port_weight_mut(&mut self, _e: crate::PortIndex) -> Option<&mut ()> {
+    fn port_weight_mut(&mut self, _e: PortIndex) -> Option<&mut ()> {
         None
     }
 

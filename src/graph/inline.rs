@@ -3,8 +3,7 @@ use tinyvec::TinyVec;
 
 use crate::{
     memory::{map::SecondaryMap, EntityIndex},
-    traits::ConnectError,
-    Direction,
+    graph::{ConnectError, Direction},
 };
 
 // TODO Implement more of the essential functions, like `disconnect` and `merge_edges`
