@@ -1,9 +1,9 @@
-use std::ops::Range;
+use std::{iter, ops::Range};
 use tinyvec::TinyVec;
 
 use crate::{
+    graph::{BasePortGraph, ConnectError, Direction},
     memory::{map::SecondaryMap, EntityIndex},
-    graph::{ConnectError, Direction},
 };
 
 // TODO Implement more of the essential functions, like `disconnect` and `merge_edges`
@@ -130,6 +130,14 @@ where
         Self {
             nodes: SecondaryMap::new(),
             edges: SecondaryMap::new(),
+        }
+    }
+
+    /// Create a new empty graph with preallocated capacities for nodes and edges.
+    pub fn with_capacity(nodes: usize, edges: usize) -> Self {
+        Self {
+            nodes: SecondaryMap::with_capacity(nodes),
+            edges: SecondaryMap::with_capacity(edges),
         }
     }
 
@@ -315,14 +323,6 @@ where
         }
     }
 
-    /// Create a new empty graph with preallocated capacities for nodes and edges.
-    pub fn with_capacity(nodes: usize, edges: usize) -> Self {
-        Self {
-            nodes: SecondaryMap::with_capacity(nodes),
-            edges: SecondaryMap::with_capacity(edges),
-        }
-    }
-
     /// Shrinks the graph's data store as much as possible.
     ///
     /// When there are a lot of empty slots, call [Graph::compact] before to make indices contiguous.
@@ -344,5 +344,194 @@ where
 {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+impl<NI, EI> BasePortGraph<NI, EI> for InlineGraph<NI, EI>
+where
+    NI: EntityIndex,
+    EI: EntityIndex,
+{
+    type NodeIndicesIterator<'a> = iter::Empty<NI> // TODO: impl
+    where
+        Self: 'a;
+
+    type NeighboursIterator<'a> = iter::Empty<NI> // TODO: impl
+    where
+        Self: 'a;
+
+    type NodeEdgesIterator<'a> = iter::Empty<EI> // TODO: impl
+    where
+        Self: 'a;
+
+    type EdgeIndicesIterator<'a> = iter::Empty<EI> // TODO: impl
+    where
+        Self: 'a;
+
+    fn new() -> Self {
+        Self::new()
+    }
+
+    fn with_capacity(nodes: usize, edges: usize, _ports: usize) -> Self {
+        Self::with_capacity(nodes, edges)
+    }
+
+    fn add_node_unweighted(&mut self) -> NI {
+        todo!()
+    }
+
+    fn next_node_index(&self) -> NI {
+        todo!()
+    }
+
+    fn add_node_with_edges_unweighted(
+        &mut self,
+        incoming: impl IntoIterator<Item = EI>,
+        outgoing: impl IntoIterator<Item = EI>,
+    ) -> Result<NI, ConnectError> {
+        todo!()
+    }
+
+    fn add_edge_unweighted(&mut self) -> EI {
+        todo!()
+    }
+
+    fn remove_node_unweighted(&mut self, node_index: NI) -> bool {
+        todo!()
+    }
+
+    fn remove_edge_unweighted(&mut self, e: EI) -> bool {
+        todo!()
+    }
+
+    fn has_node(&self, n: NI) -> bool {
+        todo!()
+    }
+
+    fn has_edge(&self, e: EI) -> bool {
+        todo!()
+    }
+
+    fn connect_after(
+        &mut self,
+        node: NI,
+        edge: EI,
+        direction: Direction,
+        edge_prev: EI,
+    ) -> Result<(), ConnectError> {
+        todo!()
+    }
+
+    fn connect_first(
+        &mut self,
+        node: NI,
+        edge: EI,
+        direction: Direction,
+    ) -> Result<(), ConnectError> {
+        todo!()
+    }
+
+    fn connect(
+        &mut self,
+        node: NI,
+        edge: EI,
+        direction: Direction,
+        edge_prev: Option<EI>,
+    ) -> Result<(), ConnectError> {
+        todo!()
+    }
+
+    fn connect_many(
+        &mut self,
+        node: NI,
+        edges: impl IntoIterator<Item = EI>,
+        direction: Direction,
+        edge_prev: Option<EI>,
+    ) -> Result<(), ConnectError> {
+        todo!()
+    }
+
+    fn connect_last(
+        &mut self,
+        node: NI,
+        edge: EI,
+        direction: Direction,
+    ) -> Result<(), ConnectError> {
+        todo!()
+    }
+
+    fn disconnect(&mut self, edge_index: EI, direction: Direction) {
+        todo!()
+    }
+
+    fn replace_connection(
+        &mut self,
+        prev: EI,
+        new: EI,
+        direction: Direction,
+    ) -> Result<(), ConnectError> {
+        todo!()
+    }
+
+    fn insert_edge(
+        &mut self,
+        node: NI,
+        edge: EI,
+        direction: Direction,
+        index: usize,
+    ) -> Result<(), ConnectError> {
+        todo!()
+    }
+
+    fn edge_endpoint(&self, e: EI, direction: Direction) -> Option<NI> {
+        todo!()
+    }
+
+    fn node_edges<'a>(&'a self, n: NI, direction: Direction) -> Self::NodeEdgesIterator<'a> {
+        todo!()
+    }
+
+    fn neighbours<'a>(&'a self, n: NI, direction: Direction) -> Self::NeighboursIterator<'a> {
+        todo!()
+    }
+
+    fn node_indices<'a>(&'a self) -> Self::NodeIndicesIterator<'a> {
+        todo!()
+    }
+
+    fn edge_indices<'a>(&'a self) -> Self::EdgeIndicesIterator<'a> {
+        todo!()
+    }
+
+    fn node_count(&self) -> usize {
+        todo!()
+    }
+
+    fn edge_count(&self) -> usize {
+        todo!()
+    }
+
+    fn port_count(&self) -> usize {
+        todo!()
+    }
+
+    fn insert_graph(&mut self, other: Self) -> (super::NodeMap, super::EdgeMap) {
+        todo!()
+    }
+
+    fn compact(&mut self) -> (super::NodeMap, super::EdgeMap) {
+        todo!()
+    }
+
+    fn shrink_to_fit(&mut self) {
+        todo!()
+    }
+
+    fn merge_edges_unweighted(&mut self, from: EI, into: EI) -> Result<(), super::MergeEdgesError> {
+        todo!()
+    }
+
+    fn edge_prev(&self, edge_index: EI, direction: Direction) -> Option<EI> {
+        todo!()
     }
 }

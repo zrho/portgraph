@@ -2,8 +2,8 @@ use std::collections::BTreeMap;
 
 use thiserror::Error;
 
-use crate::forest::LinkedForest;
 pub use crate::graph::{Direction, EdgeIndex, NodeIndex, PortIndex};
+use crate::{forest::LinkedForest, memory::EntityIndex};
 
 /// Map of updated node indices after a graph operation.
 pub type NodeMap = BTreeMap<NodeIndex, NodeIndex>;
@@ -12,17 +12,24 @@ pub type NodeMap = BTreeMap<NodeIndex, NodeIndex>;
 pub type EdgeMap = BTreeMap<EdgeIndex, EdgeIndex>;
 
 /// Core trait for directed graphs. Exposes unweighted nodes with edge ports.
-pub trait BasePortGraph {
-    type NodeIndicesIterator<'a>: Iterator<Item = NodeIndex>
+///
+/// The parameters `NI`, `EI`, and `PI` are respectively the node, edge and port index types.
+pub trait BasePortGraph<NI = NodeIndex, EI = EdgeIndex, PI = PortIndex>
+where
+    NI: EntityIndex,
+    EI: EntityIndex,
+    PI: EntityIndex,
+{
+    type NodeIndicesIterator<'a>: Iterator<Item = NI>
     where
         Self: 'a;
-    type NeighboursIterator<'a>: Iterator<Item = NodeIndex>
+    type NeighboursIterator<'a>: Iterator<Item = NI>
     where
         Self: 'a;
-    type NodeEdgesIterator<'a>: Iterator<Item = EdgeIndex>
+    type NodeEdgesIterator<'a>: Iterator<Item = EI>
     where
         Self: 'a;
-    type EdgeIndicesIterator<'a>: Iterator<Item = EdgeIndex>
+    type EdgeIndicesIterator<'a>: Iterator<Item = EI>
     where
         Self: 'a;
 
@@ -33,10 +40,10 @@ pub trait BasePortGraph {
     fn with_capacity(nodes: usize, edges: usize, ports: usize) -> Self;
 
     /// Add a new node to the graph and return its index.
-    fn add_node_unweighted(&mut self) -> NodeIndex;
+    fn add_node_unweighted(&mut self) -> NI;
 
     /// Returns the index at which the next node will be inserted.
-    fn next_node_index(&self) -> NodeIndex;
+    fn next_node_index(&self) -> NI;
 
     /// Add a node to the graph with specified incoming and outgoing edges.
     ///
@@ -56,12 +63,12 @@ pub trait BasePortGraph {
     /// ```
     fn add_node_with_edges_unweighted(
         &mut self,
-        incoming: impl IntoIterator<Item = EdgeIndex>,
-        outgoing: impl IntoIterator<Item = EdgeIndex>,
-    ) -> Result<NodeIndex, ConnectError>;
+        incoming: impl IntoIterator<Item = EI>,
+        outgoing: impl IntoIterator<Item = EI>,
+    ) -> Result<NI, ConnectError>;
 
     /// Add a new disconnected edge to the graph and return its index.
-    fn add_edge_unweighted(&mut self) -> EdgeIndex;
+    fn add_edge_unweighted(&mut self) -> EI;
 
     /// Remove a node from the graph.
     ///
@@ -83,7 +90,7 @@ pub trait BasePortGraph {
     /// assert!(graph.has_edge(e1));
     /// assert_eq!(graph.edge_endpoint(e1, Direction::Incoming), None);
     /// ```
-    fn remove_node_unweighted(&mut self, node_index: NodeIndex) -> bool;
+    fn remove_node_unweighted(&mut self, node_index: NI) -> bool;
 
     /// Remove an edge from the graph.
     ///
@@ -107,13 +114,13 @@ pub trait BasePortGraph {
     /// assert_eq!(graph.remove_edge_unweighted(e2), false);
     /// assert!(graph.node_edges(n0, Direction::Incoming).eq([e1, e3]));
     /// ```
-    fn remove_edge_unweighted(&mut self, e: EdgeIndex) -> bool;
+    fn remove_edge_unweighted(&mut self, e: EI) -> bool;
 
     /// Check whether the graph has a node with a given index.
-    fn has_node(&self, n: NodeIndex) -> bool;
+    fn has_node(&self, n: NI) -> bool;
 
     /// Check whether the graph has an edge with a given index.
-    fn has_edge(&self, e: EdgeIndex) -> bool;
+    fn has_edge(&self, e: EI) -> bool;
 
     /// Connect an edge to an incoming or outgoing port of a node.
     ///
@@ -136,10 +143,10 @@ pub trait BasePortGraph {
     /// ```
     fn connect_after(
         &mut self,
-        node: NodeIndex,
-        edge: EdgeIndex,
+        node: NI,
+        edge: EI,
         direction: Direction,
-        edge_prev: EdgeIndex,
+        edge_prev: EI,
     ) -> Result<(), ConnectError>;
 
     /// Connect an edge to an incoming or outgoing port of a node.
@@ -163,27 +170,27 @@ pub trait BasePortGraph {
     /// ```
     fn connect_first(
         &mut self,
-        node: NodeIndex,
-        edge: EdgeIndex,
+        node: NI,
+        edge: EI,
         direction: Direction,
     ) -> Result<(), ConnectError>;
 
     /// Connect an edge to an incoming or outgoing port of a node.
     fn connect(
         &mut self,
-        node: NodeIndex,
-        edge: EdgeIndex,
+        node: NI,
+        edge: EI,
         direction: Direction,
-        edge_prev: Option<EdgeIndex>,
+        edge_prev: Option<EI>,
     ) -> Result<(), ConnectError>;
 
     /// Connect a collection of edges to incoming or outgoing ports of a node.
     fn connect_many(
         &mut self,
-        node: NodeIndex,
-        edges: impl IntoIterator<Item = EdgeIndex>,
+        node: NI,
+        edges: impl IntoIterator<Item = EI>,
         direction: Direction,
-        edge_prev: Option<EdgeIndex>,
+        edge_prev: Option<EI>,
     ) -> Result<(), ConnectError>;
 
     /// Connect an edge to an incoming or outgoing port of a node.
@@ -191,8 +198,8 @@ pub trait BasePortGraph {
     /// The edge will be connected after all other edges adjacent to the node.
     fn connect_last(
         &mut self,
-        node: NodeIndex,
-        edge: EdgeIndex,
+        node: NI,
+        edge: EI,
         direction: Direction,
     ) -> Result<(), ConnectError>;
 
@@ -218,13 +225,13 @@ pub trait BasePortGraph {
     /// graph.disconnect(e1, Direction::Incoming);
     /// assert!(graph.node_edges(n0, Direction::Incoming).eq([e3]));
     /// ```
-    fn disconnect(&mut self, edge_index: EdgeIndex, direction: Direction);
+    fn disconnect(&mut self, edge_index: EI, direction: Direction);
 
     ///
     fn replace_connection(
         &mut self,
-        prev: EdgeIndex,
-        new: EdgeIndex,
+        prev: EI,
+        new: EI,
         direction: Direction,
     ) -> Result<(), ConnectError>;
 
@@ -248,8 +255,8 @@ pub trait BasePortGraph {
     /// ```
     fn insert_edge(
         &mut self,
-        node: NodeIndex,
-        edge: EdgeIndex,
+        node: NI,
+        edge: EI,
         direction: Direction,
         index: usize,
     ) -> Result<(), ConnectError>;
@@ -257,14 +264,13 @@ pub trait BasePortGraph {
     /// The endpoint of an edge in a given direction.
     ///
     /// Returns `None` if the edge does not exist or has no endpoint in that direction.
-    fn edge_endpoint(&self, e: EdgeIndex, direction: Direction) -> Option<NodeIndex>;
+    fn edge_endpoint(&self, e: EI, direction: Direction) -> Option<NI>;
 
     /// Iterator over the edges that are connected to a node.
-    fn node_edges<'a>(&'a self, n: NodeIndex, direction: Direction) -> Self::NodeEdgesIterator<'a>;
+    fn node_edges<'a>(&'a self, n: NI, direction: Direction) -> Self::NodeEdgesIterator<'a>;
 
     // Iterate over connected nodes.
-    fn neighbours<'a>(&'a self, n: NodeIndex, direction: Direction)
-        -> Self::NeighboursIterator<'a>;
+    fn neighbours<'a>(&'a self, n: NI, direction: Direction) -> Self::NeighboursIterator<'a>;
 
     /// Iterator over the node indices of the graph.
     ///
@@ -376,32 +382,34 @@ pub trait BasePortGraph {
     /// assert!(graph.node_edges(n0, Direction::Outgoing).eq([e1]));
     /// assert!(graph.node_edges(n1, Direction::Incoming).eq([e1]));
     /// ```
-    fn merge_edges_unweighted(
-        &mut self,
-        from: EdgeIndex,
-        into: EdgeIndex,
-    ) -> Result<(), MergeEdgesError>;
+    fn merge_edges_unweighted(&mut self, from: EI, into: EI) -> Result<(), MergeEdgesError>;
 
     /// Returns the index of the previous edge that is connected to the node in the given direction.
-    fn edge_prev(&self, edge_index: EdgeIndex, direction: Direction) -> Option<EdgeIndex>;
+    fn edge_prev(&self, edge_index: EI, direction: Direction) -> Option<EI>;
 }
 
-pub trait WeightedPortGraph<N, E = (), P = ()>: BasePortGraph {
-    type NodeWeightsIterator<'a>: Iterator<Item = (NodeIndex, &'a N)>
+pub trait WeightedPortGraph<N, E = (), P = (), NI = NodeIndex, EI = EdgeIndex, PI = PortIndex>:
+    BasePortGraph<NI, EI, PI>
+where
+    NI: EntityIndex,
+    EI: EntityIndex,
+    PI: EntityIndex,
+{
+    type NodeWeightsIterator<'a>: Iterator<Item = (NI, &'a N)>
     where
         Self: 'a,
         N: 'a;
-    type EdgeWeightsIterator<'a>: Iterator<Item = (EdgeIndex, &'a E)>
+    type EdgeWeightsIterator<'a>: Iterator<Item = (EI, &'a E)>
     where
         Self: 'a,
         E: 'a;
-    type PortWeightsIterator<'a>: Iterator<Item = (PortIndex, &'a P)>
+    type PortWeightsIterator<'a>: Iterator<Item = (PI, &'a P)>
     where
         Self: 'a,
         P: 'a;
 
     /// Add a new node to the graph and return its index.
-    fn add_node(&mut self, weight: N) -> NodeIndex;
+    fn add_node(&mut self, weight: N) -> NI;
 
     /// Add a node to the graph with specified incoming and outgoing edges.
     ///
@@ -422,12 +430,12 @@ pub trait WeightedPortGraph<N, E = (), P = ()>: BasePortGraph {
     fn add_node_with_edges(
         &mut self,
         weight: N,
-        incoming: impl IntoIterator<Item = EdgeIndex>,
-        outgoing: impl IntoIterator<Item = EdgeIndex>,
-    ) -> Result<NodeIndex, ConnectError>;
+        incoming: impl IntoIterator<Item = EI>,
+        outgoing: impl IntoIterator<Item = EI>,
+    ) -> Result<NI, ConnectError>;
 
     /// Add an edge to the graph.
-    fn add_edge(&mut self, weight: E) -> EdgeIndex;
+    fn add_edge(&mut self, weight: E) -> EI;
 
     /// Remove a node from the graph.
     ///
@@ -451,7 +459,7 @@ pub trait WeightedPortGraph<N, E = (), P = ()>: BasePortGraph {
     /// ```
     ///
     /// TODO: May be a good idea to choose a different name that doesn't conflict with the method in `BasePortGraph`.
-    fn remove_node(&mut self, node_index: NodeIndex) -> Option<N>;
+    fn remove_node(&mut self, node_index: NI) -> Option<N>;
 
     /// Remove an edge from the graph.
     ///
@@ -475,31 +483,31 @@ pub trait WeightedPortGraph<N, E = (), P = ()>: BasePortGraph {
     /// assert_eq!(graph.remove_edge(e2), None);
     /// assert!(graph.node_edges(n0, Direction::Incoming).eq([e1, e3]));
     /// ```
-    fn remove_edge(&mut self, e: EdgeIndex) -> Option<E>;
+    fn remove_edge(&mut self, e: EI) -> Option<E>;
 
     /// A reference to the weight of the node with a given index.
-    fn node_weight(&self, a: NodeIndex) -> Option<&N>;
+    fn node_weight(&self, a: NI) -> Option<&N>;
 
     /// A mutable reference to the weight of the node with a given index.
-    fn node_weight_mut(&mut self, a: NodeIndex) -> Option<&mut N>;
+    fn node_weight_mut(&mut self, a: NI) -> Option<&mut N>;
 
     /// Iterator over the node weights of the graph.
     fn node_weights<'a>(&'a self) -> Self::NodeWeightsIterator<'a>;
 
     /// A reference to the weight of the edge with a given index.
-    fn edge_weight(&self, e: EdgeIndex) -> Option<&E>;
+    fn edge_weight(&self, e: EI) -> Option<&E>;
 
     /// A mutable reference to the weight of the edge with a given index.
-    fn edge_weight_mut(&mut self, e: EdgeIndex) -> Option<&mut E>;
+    fn edge_weight_mut(&mut self, e: EI) -> Option<&mut E>;
 
     /// Iterator over the edge weights of the graph.
     fn edge_weights<'a>(&'a self) -> Self::EdgeWeightsIterator<'a>;
 
     /// A reference to the weight of the port with a given index.
-    fn port_weight(&self, e: PortIndex) -> Option<&P>;
+    fn port_weight(&self, e: PI) -> Option<&P>;
 
     /// A mutable reference to the weight of the port with a given index.
-    fn port_weight_mut(&mut self, e: PortIndex) -> Option<&mut P>;
+    fn port_weight_mut(&mut self, e: PI) -> Option<&mut P>;
 
     /// Iterator over the port weights of the graph.
     fn port_weights<'a>(&'a self) -> Self::PortWeightsIterator<'a>;
@@ -532,16 +540,16 @@ pub trait WeightedPortGraph<N, E = (), P = ()>: BasePortGraph {
     /// assert!(graph.node_edges(n0, Direction::Outgoing).eq([e1]));
     /// assert!(graph.node_edges(n1, Direction::Incoming).eq([e1]));
     /// ```
-    fn merge_edges(&mut self, from: EdgeIndex, into: EdgeIndex) -> Result<E, MergeEdgesError>;
+    fn merge_edges(&mut self, from: EI, into: EI) -> Result<E, MergeEdgesError>;
 }
 
 /// Access the node layout of a graph.
-pub trait IntoLayout {
+pub trait IntoLayout<NI : EntityIndex = NodeIndex> {
     /// Get a reference to the node layout of the graph.
-    fn layout(&self) -> &LinkedForest<NodeIndex>;
+    fn layout(&self) -> &LinkedForest<NI>;
 
     /// Get a mutable reference to the node layout of the graph.
-    fn layout_mut(&mut self) -> &mut LinkedForest<NodeIndex>;
+    fn layout_mut(&mut self) -> &mut LinkedForest<NI>;
 }
 
 /// Error returned by [Graph::connect] and similar methods.
