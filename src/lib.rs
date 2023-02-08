@@ -4,9 +4,41 @@
 // pub mod substitute;
 // pub mod toposort;
 
+pub mod connectivity;
 pub mod forest;
 pub mod graph;
 pub mod memory;
+
+#[cfg_attr(feature = "pyo3", pyclass)]
+#[derive(Clone, Copy, Debug, PartialEq, PartialOrd, Eq, Ord, Hash)]
+pub enum Direction {
+    Incoming = 0,
+    Outgoing = 1,
+}
+
+impl Default for Direction {
+    #[inline(always)]
+    fn default() -> Self {
+        Direction::Incoming
+    }
+}
+
+impl Direction {
+    pub const ALL: [Direction; 2] = [Direction::Incoming, Direction::Outgoing];
+
+    #[inline(always)]
+    pub fn index(self) -> usize {
+        self as usize
+    }
+
+    #[inline(always)]
+    pub fn reverse(self) -> Direction {
+        match self {
+            Direction::Incoming => Direction::Outgoing,
+            Direction::Outgoing => Direction::Incoming,
+        }
+    }
+}
 
 // #[cfg(feature = "pyo3")]
 // pub mod py_graph;

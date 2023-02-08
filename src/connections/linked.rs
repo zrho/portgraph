@@ -6,8 +6,9 @@ use std::mem::{replace, take};
 
 use crate::memory::map::SecondaryMap;
 use crate::memory::EntityIndex;
+use crate::Direction;
 
-use super::{ConnectError, Direction};
+use super::ConnectError;
 
 #[derive(Clone)]
 pub struct LinkedGraph<NI, EI> {

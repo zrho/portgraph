@@ -1,8 +1,11 @@
 use std::mem::take;
 use tinyvec::TinyVec;
 
-use super::{ConnectError, Direction};
-use crate::memory::{map::SecondaryMap, EntityIndex};
+use super::ConnectError;
+use crate::{
+    memory::{map::SecondaryMap, EntityIndex},
+    Direction,
+};
 
 // TODO Implement more of the essential functions, like `merge_edges`
 

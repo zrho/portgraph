@@ -1,6 +1,6 @@
-//! Components defining a graph structure on node and edge indices.
+//! Components defining a graph connectivity structure on node and edge indices.
 //!
-//! The graph component structure consists of nodes and edges identified by
+//! The connectivity structure consists of nodes and edges identified by
 //! their index.  Indices are not maintained by the structure; instead every
 //! index value points to a node or edge which is not connected. These
 //! components are intended to be used by some other structure like [`Slab`] which
@@ -15,9 +15,13 @@
 use thiserror::Error;
 
 // TODO define a trait with the common operations for the graph component
-// TODO convert the linked list graph into a graph component like `InlineGraph`
 
-/// Error returned by [Graph::merge_edges].
+mod inline;
+mod linked;
+
+pub use inline::InlineGraph;
+pub use linked::LinkedGraph;
+
 #[derive(Debug, Error)]
 pub enum MergeEdgesError {
     #[error("unknown edge")]
