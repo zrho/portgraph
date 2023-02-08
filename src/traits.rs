@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 
 use thiserror::Error;
 
-use crate::forest::linked::Layout;
+use crate::forest::LinkedForest;
 pub use crate::{Direction, EdgeIndex, NodeIndex, PortIndex};
 
 /// Map of updated node indices after a graph operation.
@@ -552,10 +552,10 @@ pub trait WeightedPortGraph<N, E = (), P = ()>: BasePortGraph {
 /// Access the node layout of a graph.
 trait IntoLayout {
     /// Get a reference to the node layout of the graph.
-    fn layout(&self) -> &Layout<NodeIndex>;
+    fn layout(&self) -> &LinkedForest<NodeIndex>;
 
     /// Get a mutable reference to the node layout of the graph.
-    fn layout_mut(&mut self) -> &mut Layout<NodeIndex>;
+    fn layout_mut(&mut self) -> &mut LinkedForest<NodeIndex>;
 }
 
 /// Error returned by [Graph::connect] and similar methods.

@@ -5,20 +5,16 @@ use thiserror::Error;
 use crate::memory::map::SecondaryMap;
 use crate::memory::EntityIndex;
 
-/// A forest of nodes.
+/// A forest of nodes using doubly linked lists.
 ///
-/// Every node has an ordered collection of child nodes.  The root nodes, i.e.
-/// the nodes that do not have any parent, are not ordered themselves.
-///
-/// When a node has not been set as the child or parent of any other node it is
-/// implicitly considered to be a root node. This data structure only allocates
-/// storage the first time a node is attached to another.
+/// The order of child nodes is maintained as a doubly linked list which
+/// supports efficient insertion and removal at any point in the list.
 #[derive(Debug, Clone)]
-pub struct Layout<Index> {
+pub struct LinkedForest<Index> {
     data: SecondaryMap<Index, NodeData<Index>>,
 }
 
-impl<Index> Layout<Index> {
+impl<Index> LinkedForest<Index> {
     /// Creates a new empty layout.
     pub fn new() -> Self {
         Self {
@@ -27,13 +23,13 @@ impl<Index> Layout<Index> {
     }
 }
 
-impl<Index> Default for Layout<Index> {
+impl<Index> Default for LinkedForest<Index> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<Index: EntityIndex> Layout<Index> {
+impl<Index: EntityIndex> LinkedForest<Index> {
     /// Attaches a node as the last child of a parent node.
     ///
     /// # Errors
@@ -312,7 +308,7 @@ impl<Index> Default for NodeData<Index> {
 }
 
 pub struct Children<'a, Index> {
-    layout: &'a Layout<Index>,
+    layout: &'a LinkedForest<Index>,
     next: Option<Index>,
     prev: Option<Index>,
     len: usize,

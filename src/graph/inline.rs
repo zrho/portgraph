@@ -7,8 +7,15 @@ use crate::{
     Direction,
 };
 
+// TODO Implement more of the essential functions, like `disconnect` and `merge_edges`
+
+/// A graph data structure with inline arrays for node ports.
+///
+/// Every node has a fixed size array it can use to store the edges that are
+/// connected to it. When the capacity of this array is exceeded, the edges are
+/// instead stored on the heap.
 #[derive(Debug, Clone)]
-pub struct Graph<NI, EI, const NP: usize>
+pub struct InlineGraph<NI, EI, const NP: usize = 8>
 where
     [EI; NP]: tinyvec::Array<Item = EI>,
     EI: Default,
@@ -113,7 +120,7 @@ struct EdgeData<NI> {
     nodes: [Option<NI>; 2],
 }
 
-impl<NI, EI, const NP: usize> Graph<NI, EI, NP>
+impl<NI, EI, const NP: usize> InlineGraph<NI, EI, NP>
 where
     NI: EntityIndex,
     EI: EntityIndex,
@@ -330,7 +337,7 @@ where
     }
 }
 
-impl<NI, EI, const NP: usize> Default for Graph<NI, EI, NP>
+impl<NI, EI, const NP: usize> Default for InlineGraph<NI, EI, NP>
 where
     [EI; NP]: tinyvec::Array<Item = EI>,
     NI: EntityIndex,
