@@ -4,8 +4,7 @@ use criterion::{
 };
 use portgraph::graph::{Direction, Graph};
 
-fn make_line_graph(size: usize) -> Graph<usize, (usize, usize, usize)>
-{
+fn make_line_graph(size: usize) -> Graph<usize, (usize, usize, usize)> {
     let mut graph = Graph::with_capacity(size, size * 2, 0);
     let edge0 = graph.add_edge((0, 0, 1));
     let edge1 = graph.add_edge((0, 0, 1));
@@ -34,8 +33,8 @@ fn make_line_graph(size: usize) -> Graph<usize, (usize, usize, usize)>
 /// v                    v
 /// o ---> o ---> o ---> o ---> o   ...
 ///
-fn make_two_track_dag(layers: usize) -> Graph<usize, usize> {
-    let mut graph = Graph::with_capacity(layers, layers + layers / 3, 0);
+fn make_two_track_dag(layers: usize) -> LinkedGraph<usize, usize> {
+    let mut graph = LinkedGraph::with_capacity(layers, layers + layers / 3, 0);
     if layers == 0 {
         return graph;
     } else if layers == 1 {
@@ -80,7 +79,7 @@ fn make_two_track_dag(layers: usize) -> Graph<usize, usize> {
 }
 
 /// Remove one every five nodes from the graph.
-fn remove_every_five(graph: &mut Graph<usize, usize>) {
+fn remove_every_five(graph: &mut LinkedGraph<usize, usize>) {
     let mut to_remove = Vec::new();
     for (i, v) in graph.node_indices().enumerate() {
         if i % 5 == 0 {
@@ -93,7 +92,7 @@ fn remove_every_five(graph: &mut Graph<usize, usize>) {
 }
 
 /// Remove nodes from the graph in an unordered way until it is empty.
-fn remove_all_unordered(graph: &mut Graph<usize, usize>) {
+fn remove_all_unordered(graph: &mut LinkedGraph<usize, usize>) {
     while graph.node_count() > 5 {
         remove_every_five(graph);
     }
@@ -111,13 +110,7 @@ fn bench_make_portgraph(c: &mut Criterion) {
         g.bench_with_input(
             BenchmarkId::new("make_line_graph", size),
             &size,
-            |b, size| {
-                b.iter(|| {
-                    black_box(make_line_graph(
-                        *size,
-                    ))
-                })
-            },
+            |b, size| b.iter(|| black_box(make_line_graph(*size))),
         );
         // g.bench_with_input(
         //     BenchmarkId::new("make_line_graph_test", size),

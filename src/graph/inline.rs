@@ -1,12 +1,10 @@
-use std::ops::Range;
+use std::mem::take;
 use tinyvec::TinyVec;
 
-use crate::{
-    graph::{ConnectError, Direction},
-    memory::{map::SecondaryMap, EntityIndex},
-};
+use super::{ConnectError, Direction};
+use crate::memory::{map::SecondaryMap, EntityIndex};
 
-// TODO Implement more of the essential functions, like `disconnect` and `merge_edges`
+// TODO Implement more of the essential functions, like `merge_edges`
 
 /// A graph data structure with inline arrays for node ports.
 ///
@@ -42,26 +40,6 @@ where
     [EI; NP]: tinyvec::Array<Item = EI>,
     EI: EntityIndex,
 {
-    pub fn add_incoming_ports(&mut self, ports: impl IntoIterator<Item = EI>) -> Range<usize> {
-        let ports = ports.into_iter();
-        let range_start = self.ports_incoming as usize;
-        let mut range_end = range_start;
-
-        self.edges
-            .splice(range_start..range_start, ports.inspect(|_| range_end += 1));
-
-        self.ports_incoming = range_end as u16;
-
-        range_start..range_end
-    }
-
-    pub fn add_outgoing_ports(&mut self, ports: impl IntoIterator<Item = EI>) -> Range<usize> {
-        let ports = ports.into_iter();
-        let range_start = self.edges.len();
-        self.edges.extend(ports);
-        range_start..self.edges.len()
-    }
-
     pub fn push_edge(&mut self, edge: EI, direction: Direction) {
         match direction {
             Direction::Incoming => {
@@ -88,6 +66,20 @@ where
         };
     }
 
+    pub fn remove_edge(&mut self, index: usize, direction: Direction) -> EI {
+        match direction {
+            Direction::Incoming => {
+                assert!(index < self.ports_incoming as usize);
+                self.ports_incoming += 1;
+                self.edges.remove(index)
+            }
+            Direction::Outgoing => {
+                let index = index + self.ports_incoming as usize;
+                self.edges.remove(index)
+            }
+        }
+    }
+
     #[inline(always)]
     pub fn edges_with_ports(&self) -> impl Iterator<Item = (u16, Direction, EI)> + '_ {
         (0u16..).zip(&self.edges).map(|(index, edge)| {
@@ -109,6 +101,14 @@ where
         match direction {
             Direction::Incoming => &mut self.edges[..self.ports_incoming as usize],
             Direction::Outgoing => &mut self.edges[self.ports_incoming as usize..],
+        }
+    }
+
+    pub fn port_count(&self, direction: Direction) -> usize {
+        let incoming = self.ports_incoming as usize;
+        match direction {
+            Direction::Incoming => incoming,
+            Direction::Outgoing => self.edges.len() - incoming,
         }
     }
 }
@@ -133,65 +133,75 @@ where
         }
     }
 
-    /// Create a new empty graph with preallocated capacities for nodes and edges.
-    pub fn with_capacity(nodes: usize, edges: usize) -> Self {
-        Self {
-            nodes: SecondaryMap::with_capacity(nodes),
-            edges: SecondaryMap::with_capacity(edges),
-        }
-    }
-
-    /// Adds ports to a node by connecting the given incoming and outgoing edges
-    /// at the end of the node's port lists.
+    /// Extends the ports of `node`.
+    ///
+    /// Since both incoming and outgoing ports share their storage, this method
+    /// needs to shift all outgoing ports of `node` when inserting incoming
+    /// ports. To avoid this, prefer to insert incoming before outgoing ports.
+    ///
+    /// When the number of ports exceeds the number of allowable ports in the
+    /// inline storage, the node's ports will be moved to the heap.
     ///
     /// # Errors
     ///
-    /// Fails when one of the edges is already connected in the relevant direction.
-    /// In the case of an error, the graph will remain unchanged.
-    pub fn add_node_ports(
+    /// Fails when one of the given edges is already connected. In that case all
+    /// the edges preceding the offending one will be connected to the node.
+    pub fn connect_many(
         &mut self,
         node: NI,
-        incoming: impl IntoIterator<Item = EI>,
-        outgoing: impl IntoIterator<Item = EI>,
+        edges: impl Iterator<Item = EI>,
+        direction: Direction,
     ) -> Result<(), ConnectError> {
         let node_data = &mut self.nodes[node];
 
-        // We collect the iterators so that we can check if the edges are
-        // already connected before inserting them into the array. For small
-        // numbers of ports this will remain fully on the stack.
-        let incoming: TinyVec<[EI; 8]> = incoming.into_iter().collect();
-        let outgoing: TinyVec<[EI; 8]> = outgoing.into_iter().collect();
+        let mut completed = true;
+        let ports_before = node_data.port_count(direction);
 
-        // Ensure that the edges are not already connected
-        for (edges, direction) in [&incoming, &outgoing].into_iter().zip(Direction::ALL) {
-            for edge in edges {
-                if self.edges[*edge].nodes[direction.index()].is_some() {
-                    return Err(ConnectError::AlreadyConnected);
-                }
+        let edges = edges.into_iter();
+        node_data.edges.reserve(edges.size_hint().0);
+
+        let edges = edges.take_while(|edge| {
+            completed = self.edges[*edge].nodes[direction.index()].is_none();
+            completed
+        });
+
+        match direction {
+            Direction::Incoming => {
+                let index = node_data.ports_incoming as usize;
+                node_data.edges.splice(
+                    index..index,
+                    edges.inspect(|_| node_data.ports_incoming += 1),
+                );
             }
+            Direction::Outgoing => node_data.edges.extend(edges),
+        };
+
+        for (port, edge) in node_data
+            .edge_slice(direction)
+            .iter()
+            .enumerate()
+            .skip(ports_before)
+        {
+            let edge_data = &mut self.edges[*edge];
+            edge_data.nodes[direction.index()] = Some(node);
+            edge_data.ports[direction.index()] = port as u16;
         }
 
-        node_data.edges.reserve(incoming.len() + outgoing.len());
-        let incoming_range = node_data.add_incoming_ports(incoming.iter().copied());
-        let outgoing_range = node_data.add_outgoing_ports(outgoing.iter().copied());
-
-        for (i, edge) in node_data.edges[incoming_range.clone()].iter().enumerate() {
-            let edge_data = &mut self.edges[*edge];
-            edge_data.nodes[0] = Some(node);
-            edge_data.ports[0] = (i + incoming_range.start) as u16;
-        }
-
-        for (i, edge) in node_data.edges[outgoing_range.clone()].iter().enumerate() {
-            let edge_data = &mut self.edges[*edge];
-            edge_data.nodes[1] = Some(node);
-            edge_data.ports[1] = (i + outgoing_range.start) as u16;
+        if !completed {
+            return Err(ConnectError::EdgeAlreadyConnected);
         }
 
         Ok(())
     }
 
+    /// Reserve storage for `n` more incoming or outgoing ports for `node`.
+    pub fn reserve_ports(&mut self, node: NI, n: usize) {
+        self.nodes[node].edges.reserve(n)
+    }
+
     /// Disconnects all ports of a node.
-    pub fn clear_node_ports(&mut self, node: NI) {
+    pub fn clear_node(&mut self, node: NI) {
+        // TODO This could return an owned edge iterator with the old edges in it.
         let Some(node_data) = self.nodes.take(node) else {
             return;
         };
@@ -223,23 +233,24 @@ where
     ///
     /// # Errors
     ///
-    /// Fails if the edge is already connected in the direction.
+    /// Fails when the edge was already connected.
     pub fn connect_last(
         &mut self,
         node: NI,
-        direction: Direction,
         edge: EI,
+        direction: Direction,
     ) -> Result<(), ConnectError> {
-        let node_data = &mut self.nodes[node];
         let edge_data = &mut self.edges[edge];
 
         if edge_data.nodes[direction.index()].is_some() {
-            return Err(ConnectError::AlreadyConnected);
+            return Err(ConnectError::EdgeAlreadyConnected);
         }
 
+        let node_data = &mut self.nodes[node];
         node_data.push_edge(edge, direction);
         edge_data.nodes[direction.index()] = Some(node);
         edge_data.ports[direction.index()] = node_data.edge_slice(direction).len() as u16;
+
         Ok(())
     }
 
@@ -249,20 +260,12 @@ where
     ///
     /// # Errors
     ///
-    /// Fails if the edge is already connected in the direction.
-    pub fn connect_at(
-        &mut self,
-        node: NI,
-        direction: Direction,
-        index: usize,
-        edge: EI,
-    ) -> Result<(), ConnectError> {
+    /// Fails when the edge was already connected.
+    pub fn connect_at(&mut self, node: NI, edge: EI, index: usize, direction: Direction) {
         let node_data = &mut self.nodes[node];
         let edge_data = &mut self.edges[edge];
 
-        if edge_data.nodes[direction.index()].is_some() {
-            return Err(ConnectError::AlreadyConnected);
-        }
+        debug_assert!(edge_data.nodes[direction.index()].is_none());
 
         let index = std::cmp::min(index, node_data.edge_slice(direction).len());
         node_data.insert_edge(index, edge, direction);
@@ -273,8 +276,32 @@ where
         for other_edge in &node_data.edge_slice(direction)[index + 1..] {
             self.edges[*other_edge].ports[direction.index()] += 1;
         }
+    }
 
-        Ok(())
+    /// Disconnects an edge in a given direction, returning the node it was connected to.
+    ///
+    /// Returns `None` when the edge is not connected.
+    ///
+    /// This operation is *O(n)* in the number of ports of the node in both directions.
+    pub fn disconnect(&mut self, edge: EI, direction: Direction) -> Option<NI> {
+        let Some(edge_data) = self.edges.get_mut(edge) else {
+            return None;
+        };
+
+        let Some(node) = take(&mut edge_data.nodes[direction.index()]) else {
+            return None;
+        };
+
+        let port = take(&mut edge_data.ports[direction.index()]) as usize;
+
+        let node_data = &mut self.nodes[node];
+        node_data.remove_edge(port, direction);
+
+        for later_edge in &node_data.edge_slice(direction)[port..] {
+            self.edges[*later_edge].ports[direction.index()] -= 1;
+        }
+
+        Some(node)
     }
 
     /// Returns a slice containing the indices of the edges connected to a node in a specified direction.
@@ -288,38 +315,26 @@ where
     /// Changes the key of a node.
     ///
     /// It is assumed but not checked that `new_index` is currently empty.
-    /// Returns whether the node at `old_index` was empty.
-    pub fn rekey_node(&mut self, old_index: NI, new_index: NI) -> bool {
-        match self.nodes.rekey(old_index, new_index) {
-            Some(node_data) => {
-                for (_, direction, edge) in node_data.edges_with_ports() {
-                    self.edges[edge].nodes[direction.index()] = Some(new_index);
-                }
-
-                true
+    pub fn rekey_node(&mut self, old_index: NI, new_index: NI) {
+        if let Some(node_data) = self.nodes.rekey(old_index, new_index) {
+            for (_, direction, edge) in node_data.edges_with_ports() {
+                self.edges[edge].nodes[direction.index()] = Some(new_index);
             }
-            None => false,
         }
     }
 
     /// Changes the key of an edge.
     ///
     /// It is assumed but not checked that `new_index` is currently empty.
-    /// Returns whether the edge at `old_index` was empty.
-    pub fn rekey_edge(&mut self, old_index: EI, new_index: EI) -> bool {
-        match self.edges.rekey(old_index, new_index) {
-            Some(edge_data) => {
-                for direction in Direction::ALL {
-                    if let Some(node) = edge_data.nodes[direction.index()] {
-                        let port = edge_data.ports[direction.index()] as usize;
-                        let node_data = &mut self.nodes[node];
-                        node_data.edge_slice_mut(direction)[port] = new_index;
-                    }
+    pub fn rekey_edge(&mut self, old_index: EI, new_index: EI) {
+        if let Some(edge_data) = self.edges.rekey(old_index, new_index) {
+            for direction in Direction::ALL {
+                if let Some(node) = edge_data.nodes[direction.index()] {
+                    let port = edge_data.ports[direction.index()] as usize;
+                    let node_data = &mut self.nodes[node];
+                    node_data.edge_slice_mut(direction)[port] = new_index;
                 }
-
-                true
             }
-            None => false,
         }
     }
 

@@ -14,17 +14,11 @@
 
 mod inline;
 mod linked;
-pub mod components;
-pub mod traits;
-
-use std::collections::BTreeMap;
 
 pub use inline::InlineGraph;
-use thiserror::Error;
-pub use traits::WeightedGraph;
-pub use linked::Graph;
+pub use linked::LinkedGraph;
 
-use crate::memory::make_entity;
+use thiserror::Error;
 
 // TODO define a trait with the common operations for the graph component
 // TODO convert the linked list graph into a graph component like `InlineGraph`
@@ -60,36 +54,6 @@ impl Direction {
     }
 }
 
-make_entity! {
-    pub struct NodeIndex(u32);
-    pub struct RegionIndex(u32);
-    pub struct EdgeIndex(u32);
-    pub struct PortIndex(u32);
-}
-
-/// Map of updated node indices after a graph operation.
-pub type NodeMap = BTreeMap<NodeIndex, NodeIndex>;
-
-/// Map of updated edge indices after a graph operation.
-pub type EdgeMap = BTreeMap<EdgeIndex, EdgeIndex>;
-
-/// Error returned by [Graph::connect] and similar methods.
-#[derive(Debug, Error)]
-pub enum ConnectError {
-    #[error("unknown node")]
-    UnknownNode,
-    #[error("unknown edge")]
-    UnknownEdge,
-    #[error("node mismatch")]
-    NodeMismatch,
-    #[error("edge is already connected")]
-    AlreadyConnected,
-    #[error("can not connect edge relative to itself")]
-    SameEdge,
-    #[error("port index is out of bounds")]
-    OutOfBounds,
-}
-
 /// Error returned by [Graph::merge_edges].
 #[derive(Debug, Error)]
 pub enum MergeEdgesError {
@@ -97,4 +61,12 @@ pub enum MergeEdgesError {
     UnknownEdge,
     #[error("edge is already connected")]
     AlreadyConnected,
+}
+
+#[derive(Debug, Clone, Error)]
+pub enum ConnectError {
+    #[error("the edge was already connected to another node")]
+    EdgeAlreadyConnected,
+    #[error("can not insert an edge relative to a disconnected one")]
+    RelativeToDisconnected,
 }

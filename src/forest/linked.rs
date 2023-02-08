@@ -47,8 +47,13 @@ impl<Index: EntityIndex> LinkedForest<Index> {
             return Err(AttachError::AlreadyAttached);
         }
 
-        self.data[parent].children_count += 1;
-        self.data[node].parent = Some(parent);
+        let parent_data = &mut self.data[parent];
+        parent_data.children_count += 1;
+        let node_prev = replace(&mut self.data[parent].children[1], Some(node));
+
+        let node_data = &mut self.data[node];
+        node_data.parent = Some(parent);
+        node_data.siblings[0] = node_prev;
 
         match replace(&mut self.data[parent].children[1], Some(node)) {
             Some(prev) => self.data[prev].siblings[1] = Some(node),
@@ -75,10 +80,15 @@ impl<Index: EntityIndex> LinkedForest<Index> {
             return Err(AttachError::AlreadyAttached);
         }
 
-        self.data[parent].children_count += 1;
-        self.data[node].parent = Some(parent);
+        let parent_data = &mut self.data[parent];
+        parent_data.children_count += 1;
+        let node_next = replace(&mut self.data[parent].children[0], Some(node));
 
-        match replace(&mut self.data[parent].children[0], Some(node)) {
+        let node_data = &mut self.data[node];
+        node_data.parent = Some(parent);
+        node_data.siblings[1] = node_next;
+
+        match node_next {
             Some(next) => self.data[next].siblings[0] = Some(node),
             None => self.data[parent].children[1] = Some(node),
         }
@@ -307,6 +317,7 @@ impl<Index> Default for NodeData<Index> {
     }
 }
 
+#[derive(Clone)]
 pub struct Children<'a, Index> {
     layout: &'a LinkedForest<Index>,
     next: Option<Index>,
@@ -342,7 +353,7 @@ impl<'a, Index: EntityIndex> DoubleEndedIterator for Children<'a, Index> {
 
         self.len -= 1;
         let current = self.prev.unwrap();
-        self.prev = self.layout.next(current);
+        self.prev = self.layout.prev(current);
         Some(current)
     }
 }
