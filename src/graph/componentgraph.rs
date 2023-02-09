@@ -1,22 +1,14 @@
 use std::marker::PhantomData;
+use thiserror::Error;
 
-use super::components::{Allocator, Connectivity, Weights, MergeEdgesError, NodeMap, EdgeMap, NodeIndex, EdgeIndex, PortIndex};
+use super::components::{
+    Allocator, Connectivity, DefaultAllocator, DefaultConnectivity, DefaultWeights, EdgeIndex,
+    EdgeMap, NodeIndex, NodeMap, PortIndex, Weights,
+};
 use super::{ConnectError, Direction};
 use crate::memory::EntityIndex;
 
-pub struct DefaultAllocator<NI, EI> {
-    nodes: Vec<NI>,
-    edges: Vec<EI>,
-}
-
-pub struct DefaultConnectivity<NI, EI, PI> {
-    nodes: Vec<Vec<(EI, Direction, PI)>>,
-    edges: Vec<(NI, NI)>,
-}
-
-pub struct DefaultWeights<N, E, P, NI, EI, PI>(PhantomData<(N, E, P, NI, EI, PI)>);
-
-pub struct Graph<
+pub struct PortGraph<
     N,
     E,
     P,
@@ -30,10 +22,10 @@ pub struct Graph<
     allocator: Ac,
     connectivity: Ct,
     weights: Ws,
-    PhantomData: PhantomData<(N, E, P, NI, EI, PI)>,
+    phantom_data: PhantomData<(N, E, P, NI, EI, PI)>,
 }
 
-impl<N, E, P, NI, EI, PI, Ac, Ct, Ws> Graph<N, E, P, NI, EI, PI, Ac, Ct, Ws>
+impl<N, E, P, NI, EI, PI, Ac, Ct, Ws> PortGraph<N, E, P, NI, EI, PI, Ac, Ct, Ws>
 where
     NI: EntityIndex,
     EI: EntityIndex,
@@ -41,10 +33,12 @@ where
     Ac: Allocator<NI, EI>,
 {
     /// Returns a reference to the allocator.
+    #[inline(always)]
     pub fn allocator(&self) -> &Ac {
         &self.allocator
     }
     /// Returns a mutable reference to the allocator.
+    #[inline(always)]
     pub fn allocator_mut(&mut self) -> &mut Ac {
         &mut self.allocator
     }
@@ -84,7 +78,7 @@ where
     /// Whether the graph has neither nodes nor edges.
     ///
     /// See [`Allocator::is_empty`].
-    #[inline]
+    #[inline(always)]
     pub fn is_empty(&self) -> bool {
         self.allocator().is_empty()
     }
@@ -106,7 +100,7 @@ where
     }
 }
 
-impl<N, E, P, NI, EI, PI, Ac, Ct, Ws> Graph<N, E, P, NI, EI, PI, Ac, Ct, Ws>
+impl<N, E, P, NI, EI, PI, Ac, Ct, Ws> PortGraph<N, E, P, NI, EI, PI, Ac, Ct, Ws>
 where
     NI: EntityIndex,
     EI: EntityIndex,
@@ -114,10 +108,12 @@ where
     Ct: Connectivity<NI, EI, PI>,
 {
     /// Returns a reference to the connectivity component.
+    #[inline(always)]
     pub fn connectivity(&self) -> &Ct {
         &self.connectivity
     }
     /// Returns a mutable reference to the connectivity component.
+    #[inline(always)]
     pub fn connectivity_mut(&mut self) -> &mut Ct {
         &mut self.connectivity
     }
@@ -125,6 +121,7 @@ where
     /// Returns the number of edges connected to the given node.
     ///
     /// See [`Connectivity::node_edge_count`].
+    #[inline(always)]
     pub fn node_edge_count(&self, node: NI) -> usize {
         self.connectivity().node_edge_count(node)
     }
@@ -132,6 +129,7 @@ where
     /// Returns the number of edges connected to the given node in the given direction.
     ///
     /// See [`Connectivity::node_edge_count_direction`].
+    #[inline(always)]
     pub fn node_edge_count_direction(&self, node: NI, direction: Direction) -> usize {
         self.connectivity()
             .node_edge_count_direction(node, direction)
@@ -140,6 +138,7 @@ where
     /// Iterator over the edges that are connected to a node.
     ///
     /// See [`Connectivity::node_edges`].
+    #[inline(always)]
     pub fn node_edges(&self, n: NI, direction: Direction) -> Ct::NodeEdgesIterator<'_> {
         self.connectivity().node_edges(n, direction)
     }
@@ -147,6 +146,7 @@ where
     /// Iterate over connected nodes.
     ///
     /// See [`Connectivity::neighbours`].
+    #[inline(always)]
     pub fn neighbours(&self, n: NI, direction: Direction) -> Ct::NeighboursIterator<'_> {
         self.connectivity().neighbours(n, direction)
     }
@@ -156,6 +156,7 @@ where
     /// Returns `None` if the edge does not exist or has no endpoint in that direction.
     ///
     /// See [`Connectivity::edge_endpoint`].
+    #[inline(always)]
     pub fn edge_endpoint(&self, e: EI, direction: Direction) -> Option<(NI, PI)> {
         self.connectivity().edge_endpoint(e, direction)
     }
@@ -165,6 +166,7 @@ where
     /// Returns the index of the port that was connected.
     ///
     /// See [`Connectivity::connect`].
+    #[inline(always)]
     pub fn connect_first(
         &mut self,
         node: NI,
@@ -181,6 +183,7 @@ where
     /// The edge will be connected after all other edges adjacent to the node.
     ///
     /// See [`Connectivity::connect`].
+    #[inline(always)]
     pub fn connect_last(
         &mut self,
         node: NI,
@@ -195,6 +198,7 @@ where
     /// This operation takes time linear in index.
     ///
     /// See [`Connectivity::connect_at`].
+    #[inline(always)]
     pub fn connect_at(
         &mut self,
         node: NI,
@@ -212,12 +216,13 @@ where
     /// disconnected at the node.
     ///
     /// See [`Connectivity::disconnect`].
+    #[inline(always)]
     pub fn disconnect(&mut self, edge_index: EI, direction: Direction) {
         self.connectivity_mut().disconnect(edge_index, direction)
     }
 }
 
-impl<N, E, P, NI, EI, PI, Ac, Ct, Ws> Graph<N, E, P, NI, EI, PI, Ac, Ct, Ws>
+impl<N, E, P, NI, EI, PI, Ac, Ct, Ws> PortGraph<N, E, P, NI, EI, PI, Ac, Ct, Ws>
 where
     NI: EntityIndex,
     EI: EntityIndex,
@@ -225,10 +230,12 @@ where
     Ws: Weights<N, E, P, NI, EI, PI>,
 {
     /// Returns a reference to the weights component.
+    #[inline(always)]
     pub fn weights(&self) -> &Ws {
         &self.weights
     }
     /// Returns a mutable reference to the weights component.
+    #[inline(always)]
     pub fn weights_mut(&mut self) -> &mut Ws {
         &mut self.weights
     }
@@ -236,6 +243,7 @@ where
     /// A reference to the weight of the node with a given index.
     ///
     /// See [`Weights::node_weight`].
+    #[inline(always)]
     pub fn node_weight(&self, a: NI) -> Option<&N> {
         self.weights().node_weight(a)
     }
@@ -243,6 +251,7 @@ where
     /// A mutable reference to the weight of the node with a given index.
     ///
     /// See [`Weights::node_weight_mut`].
+    #[inline(always)]
     pub fn node_weight_mut(&mut self, a: NI) -> Option<&mut N> {
         self.weights_mut().node_weight_mut(a)
     }
@@ -250,6 +259,7 @@ where
     /// Iterator over the node weights of the graph.
     ///
     /// See [`Weights::node_weights`].
+    #[inline(always)]
     pub fn node_weights(&self) -> Ws::NodeWeightsIterator<'_> {
         self.weights().node_weights()
     }
@@ -257,6 +267,7 @@ where
     /// A reference to the weight of the edge with a given index.
     ///
     /// See [`Weights::edge_weight`].
+    #[inline(always)]
     pub fn edge_weight(&self, e: EI) -> Option<&E> {
         self.weights().edge_weight(e)
     }
@@ -264,6 +275,7 @@ where
     /// A mutable reference to the weight of the edge with a given index.
     ///
     /// See [`Weights::edge_weight_mut`].
+    #[inline(always)]
     pub fn edge_weight_mut(&mut self, e: EI) -> Option<&mut E> {
         self.weights_mut().edge_weight_mut(e)
     }
@@ -271,6 +283,7 @@ where
     /// Iterator over the edge weights of the graph.
     ///
     /// See [`Weights::edge_weights`].
+    #[inline(always)]
     pub fn edge_weights(&self) -> Ws::EdgeWeightsIterator<'_> {
         self.weights().edge_weights()
     }
@@ -278,6 +291,7 @@ where
     /// A reference to the weight of the port with a given index.
     ///
     /// See [`Weights::port_weight`].
+    #[inline(always)]
     pub fn port_weight(&self, e: PI) -> Option<&P> {
         self.weights().port_weight(e.clone())
     }
@@ -285,6 +299,7 @@ where
     /// A mutable reference to the weight of the port with a given index.
     ///
     /// See [`Weights::port_weight_mut`].
+    #[inline(always)]
     pub fn port_weight_mut(&mut self, e: PI) -> Option<&mut P> {
         self.weights_mut().port_weight_mut(e)
     }
@@ -292,12 +307,13 @@ where
     /// Iterator over the port weights of the graph.
     ///
     /// See [`Weights::port_weights`].
+    #[inline(always)]
     pub fn port_weights(&self) -> Ws::PortWeightsIterator<'_> {
         self.weights().port_weights()
     }
 }
 
-impl<N, E, P, NI, EI, PI, Ac, Ct, Ws> Graph<N, E, P, NI, EI, PI, Ac, Ct, Ws>
+impl<N, E, P, NI, EI, PI, Ac, Ct, Ws> PortGraph<N, E, P, NI, EI, PI, Ac, Ct, Ws>
 where
     NI: EntityIndex,
     EI: EntityIndex,
@@ -312,7 +328,7 @@ where
             allocator: Ac::new(),
             connectivity: Ct::new(),
             weights: Ws::new(),
-            PhantomData,
+            phantom_data: PhantomData,
         }
     }
 
@@ -322,7 +338,7 @@ where
             allocator: Ac::with_capacity(nodes, edges),
             connectivity: Ct::with_capacity(nodes, edges),
             weights: Ws::with_capacity(nodes, edges),
-            PhantomData,
+            phantom_data: PhantomData,
         }
     }
 
@@ -356,10 +372,14 @@ where
         incoming: impl IntoIterator<Item = EI>,
         outgoing: impl IntoIterator<Item = EI>,
     ) -> Result<NI, ConnectError> {
-        let _index = self.add_node(weight);
-        todo!("add edges to the node");
-        //self.connectivity().add_edges(index, incoming, outgoing);
-        Ok(_index)
+        let node = self.add_node(weight);
+        for edge in incoming {
+            self.connect_last(node, edge, Direction::Incoming);
+        }
+        for edge in outgoing {
+            self.connect_last(node, edge, Direction::Outgoing);
+        }
+        Ok(node)
     }
 
     /// Add an edge to the graph.
@@ -534,4 +554,13 @@ where
 
         Ok(self.remove_edge(from).unwrap())
     }
+}
+
+/// Error returned by [Graph::merge_edges].
+#[derive(Debug, Error)]
+pub enum MergeEdgesError {
+    #[error("unknown edge")]
+    UnknownEdge,
+    #[error("edge is already connected")]
+    AlreadyConnected,
 }

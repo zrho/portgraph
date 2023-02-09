@@ -1,6 +1,4 @@
-use std::collections::BTreeMap;
-
-use thiserror::Error;
+use std::{collections::BTreeMap, marker::PhantomData};
 
 use crate::{memory::EntityIndex, make_entity};
 
@@ -20,6 +18,18 @@ pub type NodeMap<NI> = BTreeMap<NI, NI>;
 
 /// Map of updated edge indices after a graph operation.
 pub type EdgeMap<EI> = BTreeMap<EI, EI>;
+
+pub struct DefaultAllocator<NI, EI> {
+    nodes: Vec<NI>,
+    edges: Vec<EI>,
+}
+
+pub struct DefaultConnectivity<NI, EI, PI> {
+    nodes: Vec<Vec<(EI, Direction, PI)>>,
+    edges: Vec<(NI, NI)>,
+}
+
+pub struct DefaultWeights<N, E, P, NI, EI, PI>(PhantomData<(N, E, P, NI, EI, PI)>);
 
 /// Core trait defining the capability of allocating new nodes and edges.
 /// All graph implementations must implement this trait.
@@ -301,19 +311,6 @@ where
     /// assert!(graph.node_edges(n0, Direction::Incoming).eq([e3]));
     /// ```
     fn disconnect(&mut self, edge_index: EI, direction: Direction);
-
-    /// Merges two edges together:
-    /// The edge with index `from` will be disconnected. The edge with
-    /// index `into` will be connected to the node ports that `from` was connected to.
-    ///
-    /// This method is useful to connect subgraphs inserted via [Graph::insert_graph]
-    /// to the rest of the graph.
-    ///
-    /// # Errors
-    ///
-    /// Attempting to merge edges which both are already connected to nodes in the same direction
-    /// will result in an error.
-    fn merge_edges(&mut self, from: EI, into: EI) -> Result<(), MergeEdgesError>;
 }
 
 /// Trait for graphs that encode edges connecting nodes.
@@ -391,13 +388,4 @@ where
 
     /// Iterator over the port weights of the graph.
     fn port_weights<'a>(&'a self) -> Self::PortWeightsIterator<'a>;
-}
-
-/// Error returned by [Graph::merge_edges].
-#[derive(Debug, Error)]
-pub enum MergeEdgesError {
-    #[error("unknown edge")]
-    UnknownEdge,
-    #[error("edge is already connected")]
-    AlreadyConnected,
 }

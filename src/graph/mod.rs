@@ -10,6 +10,7 @@ pub mod components;
 pub mod inline;
 pub mod linked;
 
+pub use componentgraph::PortGraph;
 pub use inline::InlineGraph;
 pub use linked::LinkedGraph;
 
