@@ -47,9 +47,9 @@ pub trait IndexPoolAlloc: IndexPool {
     ///
     /// # Panic
     ///
-    /// Is allowed to panic when the size would exceed an integer type assumed
-    /// to be big enough that this realistically can not occur, e.g. `u32` or
-    /// `usize` depending on the context.
+    /// May panic when the size of the pool would exceed or nearly exceed an
+    /// integer type assumed to be big enough for overflow to be unlikely, e.g.
+    /// `u32` or `usize` depending on the context.
     fn allocate(&mut self, value: Self::Value) -> Result<Self::Index, Self::AllocError>;
 
     /// Tries to reserve enough capacity to allocate `n` additional indices.
@@ -60,16 +60,30 @@ pub trait IndexPoolAlloc: IndexPool {
     ///
     /// # Panic
     ///
-    /// Is allowed to panic when the size would exceed an integer type assumed
-    /// to be big enough that this realistically can not occur, e.g. `u32` or
-    /// `usize` depending on the context.
+    /// May panic when the size of the pool would exceed or nearly exceed an
+    /// integer type assumed to be big enough for overflow to be unlikely, e.g.
+    /// `u32` or `usize` depending on the context.
     fn reserve(&mut self, n: usize) -> Result<(), Self::AllocError>;
-}
 
-/// [`IndexPool`] that allows to free indices.
-pub trait IndexPoolFree: IndexPoolAlloc {
-    /// Attempts to free an `index`, returning its associated value if it was present.
+    /// Attempts to free an `index`, returning its associated value. Returns
+    /// `None` if the index is not allocated at this point. When a pool can not
+    /// free an allocated value, it may return `None` as well, in which case the
+    /// index will remain valid.
     fn free(&mut self, index: Self::Index) -> Option<Self::Value>;
+
+    /// Clears the pool by freeing all indices at once.
+    fn clear(&mut self);
+
+    /// Compacts the index space of the pool. Depending on the pool this is
+    /// allowed to do nothing.
+    ///
+    /// Whenever a valid index is moved the `rekey` callback is invoked with the following values:
+    ///  - A mutable borrow of the value associated to the index.
+    ///  - The old index, now considered no longer valid.
+    ///  - The new index, which was not valid before (i.e. calls to [`IndexPool::contains`] would have returned `false`).
+    fn compact<F>(&mut self, rekey: F)
+    where
+        F: FnMut(&mut Self::Value, Self::Index, Self::Index);
 }
 
 /// [`IndexPool`] that allows to iterate over indices and values.
