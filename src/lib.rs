@@ -4,7 +4,6 @@
 // pub mod substitute;
 // pub mod toposort;
 
-pub mod connections;
 pub mod forest;
 pub mod graph;
 pub mod memory;
