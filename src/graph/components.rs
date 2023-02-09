@@ -1,6 +1,6 @@
-use std::{collections::BTreeMap, marker::PhantomData};
+use std::{collections::{BTreeMap, HashSet}, marker::PhantomData};
 
-use crate::{memory::EntityIndex, make_entity};
+use crate::{memory::EntityIndex, make_entity, Insert};
 
 use super::{
     ConnectError, Direction
@@ -20,11 +20,11 @@ pub type NodeMap<NI> = BTreeMap<NI, NI>;
 pub type EdgeMap<EI> = BTreeMap<EI, EI>;
 
 pub struct DefaultAllocator<NI, EI> {
-    nodes: Vec<NI>,
-    edges: Vec<EI>,
+    nodes: HashSet<NI>,
+    edges: HashSet<EI>,
 }
 
-pub struct DefaultConnectivity<NI, EI, PI> {
+pub struct DefaultAdjacency<NI, EI, PI> {
     nodes: Vec<Vec<(EI, Direction, PI)>>,
     edges: Vec<(NI, NI)>,
 }
@@ -161,21 +161,110 @@ where
 }
 
 /// Trait for graphs that encode edges connecting nodes.
-pub trait Connectivity<NI = NodeIndex, EI = EdgeIndex, PI = PortIndex>
+pub trait Adjacency<NI = NodeIndex, EI = EdgeIndex, PI = PortIndex>
 where
     NI: EntityIndex,
     EI: EntityIndex,
     PI: EntityIndex,
 {
     /// Iterator over the indices of the nodes connected to the given node.
-    type NeighboursIterator<'a>: Iterator<Item = NI>
+    type Neighbors<'a>: Iterator<Item = NI>
     where
         Self: 'a;
     /// Iterator over the indices of the edges connected to the given node.
-    type NodeEdgesIterator<'a>: Iterator<Item = EI>
+    type NodeEdges<'a>: Iterator<Item = EI>
     where
         Self: 'a;
 
+    /// Returns the number of edges connected to the given node.
+    fn node_edge_count(&self, node: NI) -> usize;
+
+    /// Returns the number of edges connected to the given node in the given direction.
+    fn node_edge_count_direction(&self, node: NI, direction: Direction) -> usize;
+
+    /// Iterator over the edges that are connected to a node.
+    fn node_edges(& self, n: NI, direction: Direction) -> Self::NodeEdges<'_>;
+
+    /// Shorthand for [`Graph::node_edges`] in the incoming direction.
+    #[inline]
+    fn inputs(&self, node: NI) -> Self::NodeEdges<'_> {
+        self.node_edges(node, Direction::Incoming)
+    }
+
+    /// Shorthand for [`Graph::node_edges`] in the outgoing direction.
+    #[inline]
+    fn outputs(&self, node: NI) -> Self::NodeEdges<'_> {
+        self.node_edges(node, Direction::Outgoing)
+    }
+
+    /// Iterate over connected nodes.
+    fn neighbours(& self, n: NI, direction: Direction) -> Self::Neighbors<'_>;
+
+    /// The endpoint of an edge in a given direction.
+    ///
+    /// Returns `None` if the edge does not exist or has no endpoint in that direction.
+    fn edge_endpoint(&self, e: EI, direction: Direction) -> Option<(NI, PI)>;
+
+    /// Shorthand for [`Graph::edge_endpoint`] in the outgoing direction.
+    #[inline]
+    fn source(&self, edge: EI) -> Option<(NI, PI)> {
+        self.edge_endpoint(edge, Direction::Outgoing)
+    }
+
+    /// Shorthand for [`Graph::edge_endpoint`] in the incoming direction.
+    #[inline]
+    fn target(&self, edge: EI) -> Option<(NI, PI)> {
+        self.edge_endpoint(edge, Direction::Incoming)
+    }
+
+    /// Returns the node that the `edge` is connected to.
+    ///
+    /// `None` if the edge does not exist or is not connected in the direction.
+    #[inline]
+    fn edge_node(&self, edge: EI, dir: Direction) -> Option<NI> {
+        self.edge_endpoint(edge, dir).map(|(node, _)| node)
+    }
+
+    /// Shorthand for [`Graph::edge_node`] in the outgoing direction.
+    #[inline]
+    fn source_node(&self, edge: EI) -> Option<NI> {
+        self.edge_node(edge, Direction::Outgoing)
+    }
+
+    /// Shorthand for [`Graph::edge_node`] in the incoming direction.
+    #[inline]
+    fn target_node(&self, edge: EI) -> Option<NI> {
+        self.edge_node(edge, Direction::Incoming)
+    }
+
+    /// Returns the position in the node's edge list an `edge` is connected to.
+    ///
+    /// `None` if the edge does not exist or is not connected in the direction.
+    #[inline]
+    fn edge_position(&self, edge: EI, dir: Direction) -> Option<PI> {
+        self.edge_endpoint(edge, dir).map(|(_, position)| position)
+    }
+
+    /// Shorthand for [`Graph::edge_position`] in the outgoing direction.
+    #[inline]
+    fn source_position(&self, edge: EI) -> Option<PI> {
+        self.edge_position(edge, Direction::Outgoing)
+    }
+
+    /// Shorthand for [`Graph::edge_position`] in the incoming direction.
+    #[inline]
+    fn target_position(&self, edge: EI) -> Option<PI> {
+        self.edge_position(edge, Direction::Incoming)
+    }
+}
+
+/// Trait for graphs that encode edges connecting nodes.
+pub trait AdjacencyMut<NI = NodeIndex, EI = EdgeIndex, PI = PortIndex> : Adjacency<NI, EI, PI>
+where
+    NI: EntityIndex,
+    EI: EntityIndex,
+    PI: EntityIndex,
+{
     /// Create a new component with no nodes or edges.
     fn new() -> Self;
 
@@ -194,7 +283,7 @@ where
     /// Remove an edge from the internal data structures.
     fn unregister_edge(&mut self, index: EI);
 
-    /// Insert the elements of another connectivity into this connectivity.
+    /// Insert the elements of another adjacency into this adjacency.
     fn insert_graph(&mut self, other: &Self, node_map: &NodeMap<NI>, edge_map: &EdgeMap<EI>);
 
     /// Reindex the nodes and edges.
@@ -205,66 +294,14 @@ where
 
     // ---------------
 
-    /// Returns the number of edges connected to the given node.
-    fn node_edge_count(&self, node: NI) -> usize;
-
-    /// Returns the number of edges connected to the given node in the given direction.
-    fn node_edge_count_direction(&self, node: NI, direction: Direction) -> usize;
-
-    /// Iterator over the edges that are connected to a node.
-    fn node_edges<'a>(&'a self, n: NI, direction: Direction) -> Self::NodeEdgesIterator<'a>;
-
-    /// Iterate over connected nodes.
-    fn neighbours<'a>(&'a self, n: NI, direction: Direction) -> Self::NeighboursIterator<'a>;
-
-    /// The endpoint of an edge in a given direction.
-    ///
-    /// Returns `None` if the edge does not exist or has no endpoint in that direction.
-    fn edge_endpoint(&self, e: EI, direction: Direction) -> Option<(NI, PI)>;
-
     /// Connect an edge to an incoming or outgoing port of a node.
     ///
-    /// The edge will be connected before all other edges adjacent to the node.
+    /// # Errors
     ///
-    /// Returns the index of the port that was connected.
+    ///  - When the edge is already connected.
+    ///  - When trying to insert relative to an edge that is not connected to the same node.
     ///
-    /// # Example
-    ///
-    /// ```
-    /// # use portgraph::graph::{Graph, Direction, BasePortGraph};
-    /// let mut graph = Graph::<(), ()>::new();
-    ///
-    /// let e1 = graph.add_edge_unweighted();
-    /// let e2 = graph.add_edge_unweighted();
-    /// let n0 = graph.add_node_unweighted();
-    ///
-    /// graph.connect_first(n0, e2, Direction::Incoming).unwrap();
-    /// graph.connect_first(n0, e1, Direction::Incoming).unwrap();
-    ///
-    /// assert!(graph.node_edges(n0, Direction::Incoming).eq([e1, e2]));
-    /// ```
-    fn connect_first(
-        &mut self,
-        node: NI,
-        edge: EI,
-        direction: Direction,
-    ) -> Result<PI, ConnectError>;
-
-    /// Connect an edge to an incoming or outgoing port of a node.
-    ///
-    /// The edge will be connected after all other edges adjacent to the node.
-    ///
-    /// Returns the index of the port that was connected.
-    fn connect_last(
-        &mut self,
-        node: NI,
-        edge: EI,
-        direction: Direction,
-    ) -> Result<PI, ConnectError>;
-
-    /// Connect edge to node, inserting to connection list at specified index.
-    ///
-    /// This operation takes time linear in index.
+    /// In the case of an error, the graph is unchanged.
     ///
     /// # Example
     ///
@@ -280,13 +317,30 @@ where
     /// assert!(graph.node_edges(n0, Direction::Incoming).eq([e1, e2]));
     ///
     /// ```
-    fn connect_at(
+    fn connect(
         &mut self,
         node: NI,
         edge: EI,
+        position: Insert<EI>,
         direction: Direction,
-        port: PI,
     ) -> Result<(), ConnectError>;
+
+    /// Extends the ports of `node`.
+    ///
+    /// # Errors
+    ///
+    ///  - When one of the edge is already connected.
+    ///
+    /// Connects edges until an error is discovered.
+    fn connect_many<I>(
+        &mut self,
+        node: NI,
+        edges: I,
+        position: Insert<EI>,
+        direction: Direction,
+    ) -> Result<(), ConnectError>
+    where
+        I: IntoIterator<Item = EI>;
 
     /// Disconnect an edge endpoint from a node.
     ///
@@ -351,7 +405,7 @@ where
     /// Remove an edge from the internal data structures, returning its value.
     fn unregister_edge(&mut self, index: EI) -> Option<E>;
 
-    /// Insert the elements of another connectivity into this connectivity.
+    /// Insert the elements of another weights into these weights.
     fn insert_graph(&mut self, other: &Self, node_map: &NodeMap<NI>, edge_map: &EdgeMap<EI>);
 
     /// Reindex the nodes and edges.

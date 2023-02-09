@@ -2,10 +2,11 @@ use std::marker::PhantomData;
 use thiserror::Error;
 
 use super::components::{
-    Allocator, Connectivity, DefaultAllocator, DefaultConnectivity, DefaultWeights, EdgeIndex,
-    EdgeMap, NodeIndex, NodeMap, PortIndex, Weights,
+    Allocator, Adjacency, DefaultAllocator, DefaultAdjacency, DefaultWeights, EdgeIndex,
+    EdgeMap, NodeIndex, NodeMap, PortIndex, Weights, AdjacencyMut,
 };
 use super::{ConnectError, Direction};
+use crate::Insert;
 use crate::memory::EntityIndex;
 
 pub struct PortGraph<
@@ -16,16 +17,16 @@ pub struct PortGraph<
     EI = EdgeIndex,
     PI = PortIndex,
     Ac = DefaultAllocator<NI, EI>,
-    Ct = DefaultConnectivity<NI, EI, PI>,
+    Adj = DefaultAdjacency<NI, EI, PI>,
     Ws = DefaultWeights<N, E, P, NI, EI, PI>,
 > {
     allocator: Ac,
-    connectivity: Ct,
+    adjacency: Adj,
     weights: Ws,
     phantom_data: PhantomData<(N, E, P, NI, EI, PI)>,
 }
 
-impl<N, E, P, NI, EI, PI, Ac, Ct, Ws> PortGraph<N, E, P, NI, EI, PI, Ac, Ct, Ws>
+impl<N, E, P, NI, EI, PI, Ac, Adj, Ws> PortGraph<N, E, P, NI, EI, PI, Ac, Adj, Ws>
 where
     NI: EntityIndex,
     EI: EntityIndex,
@@ -100,114 +101,81 @@ where
     }
 }
 
-impl<N, E, P, NI, EI, PI, Ac, Ct, Ws> PortGraph<N, E, P, NI, EI, PI, Ac, Ct, Ws>
+impl<N, E, P, NI, EI, PI, Ac, Adj, Ws> PortGraph<N, E, P, NI, EI, PI, Ac, Adj, Ws>
 where
     NI: EntityIndex,
     EI: EntityIndex,
     PI: EntityIndex,
-    Ct: Connectivity<NI, EI, PI>,
+    Adj: AdjacencyMut<NI, EI, PI>,
 {
-    /// Returns a reference to the connectivity component.
+    /// Returns a reference to the adjacency component.
     #[inline(always)]
-    pub fn connectivity(&self) -> &Ct {
-        &self.connectivity
+    pub fn adjacency(&self) -> &Adj {
+        &self.adjacency
     }
-    /// Returns a mutable reference to the connectivity component.
+    /// Returns a mutable reference to the adjacency component.
     #[inline(always)]
-    pub fn connectivity_mut(&mut self) -> &mut Ct {
-        &mut self.connectivity
+    pub fn adjacency_mut(&mut self) -> &mut Adj {
+        &mut self.adjacency
     }
 
     /// Returns the number of edges connected to the given node.
     ///
-    /// See [`Connectivity::node_edge_count`].
+    /// See [`Adjacency::node_edge_count`].
     #[inline(always)]
     pub fn node_edge_count(&self, node: NI) -> usize {
-        self.connectivity().node_edge_count(node)
+        self.adjacency().node_edge_count(node)
     }
 
     /// Returns the number of edges connected to the given node in the given direction.
     ///
-    /// See [`Connectivity::node_edge_count_direction`].
+    /// See [`Adjacency::node_edge_count_direction`].
     #[inline(always)]
     pub fn node_edge_count_direction(&self, node: NI, direction: Direction) -> usize {
-        self.connectivity()
+        self.adjacency()
             .node_edge_count_direction(node, direction)
     }
 
     /// Iterator over the edges that are connected to a node.
     ///
-    /// See [`Connectivity::node_edges`].
+    /// See [`Adjacency::node_edges`].
     #[inline(always)]
-    pub fn node_edges(&self, n: NI, direction: Direction) -> Ct::NodeEdgesIterator<'_> {
-        self.connectivity().node_edges(n, direction)
+    pub fn node_edges(&self, n: NI, direction: Direction) -> Adj::NodeEdges<'_> {
+        self.adjacency().node_edges(n, direction)
     }
 
     /// Iterate over connected nodes.
     ///
-    /// See [`Connectivity::neighbours`].
+    /// See [`Adjacency::neighbours`].
     #[inline(always)]
-    pub fn neighbours(&self, n: NI, direction: Direction) -> Ct::NeighboursIterator<'_> {
-        self.connectivity().neighbours(n, direction)
+    pub fn neighbours(&self, n: NI, direction: Direction) -> Adj::Neighbors<'_> {
+        self.adjacency().neighbours(n, direction)
     }
 
     /// The endpoint of an edge in a given direction.
     ///
     /// Returns `None` if the edge does not exist or has no endpoint in that direction.
     ///
-    /// See [`Connectivity::edge_endpoint`].
+    /// See [`Adjacency::edge_endpoint`].
     #[inline(always)]
     pub fn edge_endpoint(&self, e: EI, direction: Direction) -> Option<(NI, PI)> {
-        self.connectivity().edge_endpoint(e, direction)
-    }
-
-    /// Connect an edge to an incoming or outgoing port of a node.
-    ///
-    /// Returns the index of the port that was connected.
-    ///
-    /// See [`Connectivity::connect`].
-    #[inline(always)]
-    pub fn connect_first(
-        &mut self,
-        node: NI,
-        edge: EI,
-        direction: Direction,
-    ) -> Result<PI, ConnectError> {
-        self.connectivity_mut().connect_first(node, edge, direction)
-    }
-
-    /// Connect an edge to an incoming or outgoing port of a node.
-    ///
-    /// Returns the index of the port that was connected.
-    ///
-    /// The edge will be connected after all other edges adjacent to the node.
-    ///
-    /// See [`Connectivity::connect`].
-    #[inline(always)]
-    pub fn connect_last(
-        &mut self,
-        node: NI,
-        edge: EI,
-        direction: Direction,
-    ) -> Result<PI, ConnectError> {
-        self.connectivity_mut().connect_last(node, edge, direction)
+        self.adjacency().edge_endpoint(e, direction)
     }
 
     /// Connect edge to node, inserting to connection list at specified index.
     ///
     /// This operation takes time linear in index.
     ///
-    /// See [`Connectivity::connect_at`].
+    /// See [`Adjacency::connect_at`].
     #[inline(always)]
-    pub fn connect_at(
+    fn connect(
         &mut self,
         node: NI,
         edge: EI,
+        position: Insert<EI>,
         direction: Direction,
-        port: PI,
     ) -> Result<(), ConnectError> {
-        self.connectivity_mut()
-            .connect_at(node, edge, direction, port)
+        self.adjacency_mut().connect(node, edge, position, direction)
     }
 
     /// Disconnect an edge endpoint from a node.
@@ -215,14 +183,14 @@ where
     /// This operation takes time linear in the number of edges that precede the edge to be
     /// disconnected at the node.
     ///
-    /// See [`Connectivity::disconnect`].
+    /// See [`Adjacency::disconnect`].
     #[inline(always)]
     pub fn disconnect(&mut self, edge_index: EI, direction: Direction) {
-        self.connectivity_mut().disconnect(edge_index, direction)
+        self.adjacency_mut().disconnect(edge_index, direction)
     }
 }
 
-impl<N, E, P, NI, EI, PI, Ac, Ct, Ws> PortGraph<N, E, P, NI, EI, PI, Ac, Ct, Ws>
+impl<N, E, P, NI, EI, PI, Ac, Adj, Ws> PortGraph<N, E, P, NI, EI, PI, Ac, Adj, Ws>
 where
     NI: EntityIndex,
     EI: EntityIndex,
@@ -313,20 +281,20 @@ where
     }
 }
 
-impl<N, E, P, NI, EI, PI, Ac, Ct, Ws> PortGraph<N, E, P, NI, EI, PI, Ac, Ct, Ws>
+impl<N, E, P, NI, EI, PI, Ac, Adj, Ws> PortGraph<N, E, P, NI, EI, PI, Ac, Adj, Ws>
 where
     NI: EntityIndex,
     EI: EntityIndex,
     PI: EntityIndex,
     Ac: Allocator<NI, EI>,
-    Ct: Connectivity<NI, EI, PI>,
+    Adj: AdjacencyMut<NI, EI, PI>,
     Ws: Weights<N, E, P, NI, EI, PI>,
 {
     /// Create a new graph with no nodes or edges.
     pub fn new() -> Self {
         Self {
             allocator: Ac::new(),
-            connectivity: Ct::new(),
+            adjacency: Adj::new(),
             weights: Ws::new(),
             phantom_data: PhantomData,
         }
@@ -336,7 +304,7 @@ where
     pub fn with_capacity(nodes: usize, edges: usize) -> Self {
         Self {
             allocator: Ac::with_capacity(nodes, edges),
-            connectivity: Ct::with_capacity(nodes, edges),
+            adjacency: Adj::with_capacity(nodes, edges),
             weights: Ws::with_capacity(nodes, edges),
             phantom_data: PhantomData,
         }
@@ -345,7 +313,7 @@ where
     /// Add a new node to the graph and return its index.
     pub fn add_node(&mut self, weight: N) -> NI {
         let index = self.allocator_mut().new_node();
-        self.connectivity_mut().register_node(index);
+        self.adjacency_mut().register_node(index);
         self.weights_mut().register_node(index, weight);
         index
     }
@@ -374,10 +342,10 @@ where
     ) -> Result<NI, ConnectError> {
         let node = self.add_node(weight);
         for edge in incoming {
-            self.connect_last(node, edge, Direction::Incoming);
+            self.connect(node, edge, Insert::Last, Direction::Incoming);
         }
         for edge in outgoing {
-            self.connect_last(node, edge, Direction::Outgoing);
+            self.connect(node, edge, Insert::Last, Direction::Outgoing);
         }
         Ok(node)
     }
@@ -385,7 +353,7 @@ where
     /// Add an edge to the graph.
     pub fn add_edge(&mut self, weight: E) -> EI {
         let index = self.allocator_mut().new_edge();
-        self.connectivity_mut().register_edge(index);
+        self.adjacency_mut().register_edge(index);
         self.weights_mut().register_edge(index, weight);
         index
     }
@@ -412,7 +380,7 @@ where
     /// ```
     pub fn remove_node(&mut self, index: NI) -> Option<N> {
         self.allocator_mut().remove_node(index);
-        self.connectivity_mut().unregister_node(index);
+        self.adjacency_mut().unregister_node(index);
         self.weights_mut().unregister_node(index)
     }
 
@@ -440,7 +408,7 @@ where
     /// ```
     pub fn remove_edge(&mut self, index: EI) -> Option<E> {
         self.allocator_mut().remove_edge(index);
-        self.connectivity_mut().unregister_edge(index);
+        self.adjacency_mut().unregister_edge(index);
         self.weights_mut().unregister_edge(index)
     }
 
@@ -453,8 +421,8 @@ where
     /// subgraph with the rest of the graph
     pub fn insert_graph(&mut self, other: &Self) -> (NodeMap<NI>, EdgeMap<EI>) {
         let (node_map, edge_map) = self.allocator_mut().insert_graph(other.allocator());
-        self.connectivity_mut()
-            .insert_graph(other.connectivity(), &node_map, &edge_map);
+        self.adjacency_mut()
+            .insert_graph(other.adjacency(), &node_map, &edge_map);
         self.weights_mut()
             .insert_graph(other.weights(), &node_map, &edge_map);
         (node_map, edge_map)
@@ -493,7 +461,7 @@ where
     /// ```
     pub fn compact(&mut self) -> (NodeMap<NI>, EdgeMap<EI>) {
         let (node_map, edge_map) = self.allocator_mut().compact();
-        self.connectivity_mut().reindex(&node_map, &edge_map);
+        self.adjacency_mut().reindex(&node_map, &edge_map);
         self.weights_mut().reindex(&node_map, &edge_map);
         (node_map, edge_map)
     }
@@ -506,7 +474,7 @@ where
         alloc.shrink_to_fit();
         let nodes = alloc.node_bound();
         let edges = alloc.edge_bound();
-        self.connectivity_mut().shrink_to(nodes, edges);
+        self.adjacency_mut().shrink_to(nodes, edges);
         self.weights_mut().shrink_to(nodes, edges);
     }
 
@@ -549,7 +517,7 @@ where
         }
 
         if let Some((from_node, from_port)) = self.edge_endpoint(from, Direction::Outgoing) {
-            self.connect_at(from_node, into, Direction::Outgoing, from_port);
+            self.connect(from_node, into, Insert::Index(from_port.index()), Direction::Outgoing);
         }
 
         Ok(self.remove_edge(from).unwrap())
