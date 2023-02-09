@@ -37,13 +37,13 @@ where
     /// Remove an edge from the graph.
     fn remove_edge(&mut self, edge: EI);
 
-    /// Returns a bound on the registered node indices.
-    /// Any node index higher to this bound is currently invalid.
-    fn node_bound(&self) -> NI;
+    /// Returns a bound on the number of registered node indices.
+    /// Any node index higher or equal to this bound is currently invalid.
+    fn node_bound(&self) -> usize;
 
-    /// Returns a bound on the registered edge indices.
-    /// Any edge index higher to this bound is currently invalid.
-    fn edge_bound(&self) -> EI;
+    /// Returns a bound on the number of registered edge indices.
+    /// Any edge index higher or equal to this bound is currently invalid.
+    fn edge_bound(&self) -> usize;
 
     /// Insert the elements of another allocator into this one.
     ///
@@ -205,13 +205,10 @@ pub trait UnmanagedComponent<NI, EI>: Default {
     fn unregister_edge(&mut self, index: EI);
 
     /// Shrinks the graph's data store.
-    fn shrink_to(&mut self, nodes: NI, edges: EI);
+    fn shrink_to(&mut self, nodes: usize, edges: usize);
 
     /// Insert the elements of another adjacency into this adjacency.
     fn insert_from(&mut self, other: &Self, node_map: impl FnMut(NI) -> NI, edge_map: impl FnMut(EI) -> EI);
-
-    /// Reindex the nodes and edges.
-    fn reindex(&mut self, node_map: impl FnMut(NI) -> NI, edge_map: impl FnMut(EI) -> EI);
 
     /// Changes the key of a node.
     ///

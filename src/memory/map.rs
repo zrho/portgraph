@@ -35,6 +35,11 @@ impl<K, V> SecondaryMap<K, V> {
     }
 
     #[inline]
+    pub fn len(&self) -> usize {
+        self.values.len()
+    }
+
+    #[inline]
     pub fn clear(&mut self) {
         self.values.clear()
     }
@@ -92,6 +97,14 @@ impl<K: EntityIndex, V: Clone> SecondaryMap<K, V> {
             *entry = value;
             Some(entry)
         }
+    }
+
+    #[inline]
+    pub fn iter(& self) -> impl Iterator<Item = (K, &V)> + '_ {
+        self.values
+            .iter()
+            .enumerate()
+            .map(|(i, value)| (EntityIndex::new(i), value))
     }
 
     #[inline]

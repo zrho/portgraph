@@ -186,7 +186,7 @@ where
     type NodeEdges<'a> = NodeEdges<'a, NI, EI>
     where
         Self: 'a;
-    type Neighbours<'a> = std::iter::Empty<NI> where Self: 'a;
+    type Neighbours<'a> = Neighbours<'a, NI, EI> where Self: 'a;
 
     fn node_edges(&self, node: NI, dir: Direction) -> Self::NodeEdges<'_> {
         let node_data = &self.nodes[node];
@@ -210,8 +210,39 @@ where
         Some((node, port))
     }
 
-    fn neighbours(& self, n: NI, direction: Direction) -> Self::Neighbours<'_> {
-        todo!()
+    fn neighbours(&self, n: NI, direction: Direction) -> Self::Neighbours<'_> {
+        Neighbours {
+            edges: self.node_edges(n, direction),
+            inline_graph: self,
+            direction,
+        }
+    }
+}
+#[derive(Clone)]
+pub struct Neighbours<'a, NI, EI> {
+    edges: NodeEdges<'a, NI, EI>,
+    inline_graph: &'a LinkedGraph<NI, EI>,
+    direction: Direction,
+}
+
+impl<'a, NI, EI> Iterator for Neighbours<'a, NI, EI>
+where
+    NI: EntityIndex,
+    EI: EntityIndex,
+{
+    type Item = NI;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.edges.next().map(move |e| {
+            self.inline_graph
+                .edge_endpoint(e, self.direction)
+                .unwrap()
+                .0
+        })
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.edges.size_hint()
     }
 }
 
@@ -235,19 +266,6 @@ where
             Insert::After(after) => self.connect_after(edge, after, direction),
             Insert::Index(index) => self.connect_at(node, edge, index, direction),
         }
-    }
-
-    fn connect_many<I>(
-        &mut self,
-        node: NI,
-        edges: I,
-        position: Insert<EI>,
-        direction: Direction,
-    ) -> Result<(), ConnectError>
-    where
-        I: IntoIterator<Item = EI>,
-    {
-        todo!()
     }
 
     fn disconnect(&mut self, edge: EI, direction: Direction) -> Option<NI> {
@@ -306,47 +324,61 @@ where
     NI: EntityIndex,
     EI: EntityIndex,
 {
-    fn rekey_node(&mut self, old: NI, new: NI) {
-        todo!()
-    }
-
-    fn rekey_edge(&mut self, old: EI, new: EI) {
-        todo!()
-    }
-
     fn new() -> Self {
-        todo!()
+        Self::default()
     }
 
     fn with_capacity(nodes: usize, edges: usize) -> Self {
-        todo!()
+        Self {
+            nodes: SecondaryMap::with_capacity(nodes),
+            edges: SecondaryMap::with_capacity(edges),
+        }
     }
 
     fn register_node(&mut self, index: NI) {
-        todo!()
+        if self.nodes.len() <= index.index() {
+            self.nodes.resize(index.index() + 1)
+        }
     }
 
     fn register_edge(&mut self, index: EI) {
+        if self.edges.len() <= index.index() {
+            self.edges.resize(index.index() + 1)
+        }
+    }
+
+    fn unregister_node(&mut self, _index: NI) {}
+
+    fn unregister_edge(&mut self, _index: EI) {}
+
+    fn shrink_to(&mut self, nodes: usize, edges: usize) {
+        self.nodes.resize(nodes);
+        self.edges.resize(edges);
+    }
+
+    fn insert_from(
+        &mut self,
+        other: &Self,
+        mut node_map: impl FnMut(NI) -> NI,
+        mut edge_map: impl FnMut(EI) -> EI,
+    ) {
+        for (node, data) in other.nodes.iter() {
+            let new_node = node_map(node);
+            self.register_node(new_node);
+            self.nodes[new_node] = data.clone();
+        }
+        for (edge, data) in other.edges.iter() {
+            let new_edge = edge_map(edge);
+            self.register_edge(new_edge);
+            self.edges[new_edge] = data.clone();
+        }
+    }
+
+    fn rekey_node(&mut self, _old: NI, _new: NI) {
         todo!()
     }
 
-    fn unregister_node(&mut self, index: NI) {
-        todo!()
-    }
-
-    fn unregister_edge(&mut self, index: EI) {
-        todo!()
-    }
-
-    fn shrink_to(&mut self, nodes: NI, edges: EI) {
-        todo!()
-    }
-
-    fn insert_from(&mut self, other: &Self, node_map: impl FnMut(NI) -> NI, edge_map: impl FnMut(EI) -> EI) {
-        todo!()
-    }
-
-    fn reindex(&mut self, node_map: impl FnMut(NI) -> NI, edge_map: impl FnMut(EI) -> EI) {
+    fn rekey_edge(&mut self, _old: EI, _new: EI) {
         todo!()
     }
 }

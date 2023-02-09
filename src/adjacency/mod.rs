@@ -161,7 +161,13 @@ where
         direction: Direction,
     ) -> Result<(), ConnectError>
     where
-        I: IntoIterator<Item = EI>;
+        I: IntoIterator<Item = EI> {
+        for edge in edges {
+            // Note: This may connect edges in an inverse order for some Insert variants.
+            self.connect(node, edge, position, direction)?;
+        }
+        Ok(())
+    }
 
     /// Disconnect an edge endpoint from a node.
     ///

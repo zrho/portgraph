@@ -3,7 +3,7 @@ use std::hash::Hash;
 use std::marker::PhantomData;
 use thiserror::Error;
 
-use crate::adjacency::AdjacencyMut;
+use crate::adjacency::{AdjacencyMut, InlineGraph};
 use crate::components::{Allocator, UnmanagedComponent, Weights};
 use crate::memory::EntityIndex;
 use crate::Insert;
@@ -11,7 +11,6 @@ use crate::{ConnectError, Direction};
 use crate::{EdgeIndex, NodeIndex};
 
 type DefaultAllocator<NI, EI> = PhantomData<(NI, EI)>; // TODO: define a good default
-type DefaultAdjacency<NI, EI> = PhantomData<(NI, EI)>; // TODO: define a good default
 type DefaultWeights<N, E, P, NI, EI> = PhantomData<(N, E, P, NI, EI)>; // TODO: define a good default
 
 pub struct PortGraph<
@@ -21,7 +20,7 @@ pub struct PortGraph<
     NI = NodeIndex,
     EI = EdgeIndex,
     Ac = DefaultAllocator<NI, EI>,
-    Adj = DefaultAdjacency<NI, EI>,
+    Adj = InlineGraph<NI, EI>,
     Ws = DefaultWeights<N, E, P, NI, EI>,
 > {
     allocator: Ac,
@@ -338,10 +337,10 @@ where
     ) -> Result<NI, ConnectError> {
         let node = self.add_node(weight);
         for edge in incoming {
-            self.connect(node, edge, Insert::Last, Direction::Incoming);
+            self.connect(node, edge, Insert::Last, Direction::Incoming)?;
         }
         for edge in outgoing {
-            self.connect(node, edge, Insert::Last, Direction::Outgoing);
+            self.connect(node, edge, Insert::Last, Direction::Outgoing)?;
         }
         Ok(node)
     }
@@ -435,8 +434,12 @@ where
         let mut edge_map = HashMap::with_capacity(other.edge_count());
         self.allocator_mut().insert_from(
             other.allocator(),
-            |old, new| {node_map.insert(old, new);},
-            |old, new| {edge_map.insert(old, new);},
+            |old, new| {
+                node_map.insert(old, new);
+            },
+            |old, new| {
+                edge_map.insert(old, new);
+            },
         );
         self.adjacency_mut().insert_from(
             other.adjacency(),
@@ -485,18 +488,22 @@ where
     pub fn compact(&mut self) -> (HashMap<NI, NI>, HashMap<EI, EI>) {
         let mut node_map = HashMap::with_capacity(self.node_count());
         let mut edge_map = HashMap::with_capacity(self.edge_count());
-        self.allocator_mut().compact(
-            |old, new| {node_map.insert(old, new);},
-            |old, new| {edge_map.insert(old, new);},
+        self.allocator.compact(
+            |old, new| {
+                node_map.insert(old, new);
+            },
+            |old, new| {
+                edge_map.insert(old, new);
+            },
         );
-        self.adjacency_mut().reindex(
-            |i| *node_map.get(&i).unwrap(),
-            |i| *edge_map.get(&i).unwrap(),
-        );
-        self.weights_mut().reindex(
-            |i| *node_map.get(&i).unwrap(),
-            |i| *edge_map.get(&i).unwrap(),
-        );
+        for (old, new) in node_map.iter() {
+            self.adjacency.rekey_node(*old, *new);
+            self.weights.rekey_node(*old, *new);
+        }
+        for (old, new) in edge_map.iter() {
+            self.adjacency.rekey_edge(*old, *new);
+            self.weights.rekey_edge(*old, *new);
+        }
         (node_map, edge_map)
     }
 
@@ -556,7 +563,8 @@ where
                 into,
                 Insert::Index(from_port),
                 Direction::Outgoing,
-            ).map_err(|_| MergeEdgesError::AlreadyConnected)?;
+            )
+            .map_err(|_| MergeEdgesError::AlreadyConnected)?;
         }
 
         Ok(self.remove_edge(from).unwrap())

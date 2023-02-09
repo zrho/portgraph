@@ -4,8 +4,8 @@ use tinyvec::TinyVec;
 
 use super::{Adjacency, AdjacencyMut, AdjacencySlice};
 use crate::components::UnmanagedComponent;
-use crate::{ConnectError, Direction, Insert};
 use crate::memory::{map::SecondaryMap, EntityIndex};
+use crate::{ConnectError, Direction, Insert};
 
 // TODO Implement more of the essential functions, like `merge_edges`
 
@@ -136,8 +136,13 @@ where
         }
     }
 
-    /// Disconnects all ports of a node.
-    pub fn clear_node(&mut self, node: NI) {}
+    /// Create a new empty graph.
+    pub fn with_capacity(nodes: usize, edges: usize) -> Self {
+        Self {
+            nodes: SecondaryMap::with_capacity(nodes),
+            edges: SecondaryMap::with_capacity(edges),
+        }
+    }
 
     /// Shrinks the graph's data store as much as possible.
     pub fn shrink_to_fit(&mut self) {
@@ -252,8 +257,7 @@ where
 {
     // TODO: Wrap this up
     type NodeEdges<'a> = std::iter::Copied<std::slice::Iter<'a, EI>> where Self: 'a;
-
-    type Neighbours<'a> = std::iter::Empty<NI> where Self: 'a;
+    type Neighbours<'a> = Neighbours<'a, NI, EI, NP> where Self: 'a;
 
     #[inline]
     fn node_edges(&self, node: NI, dir: Direction) -> Self::NodeEdges<'_> {
@@ -268,8 +272,45 @@ where
         Some((node, port as usize))
     }
 
-    fn neighbours(& self, n: NI, direction: Direction) -> Self::Neighbours<'_> {
-        todo!()
+    fn neighbours(&self, n: NI, direction: Direction) -> Self::Neighbours<'_> {
+        Neighbours {
+            edges: self.node_edges_slice(n, direction).iter(),
+            inline_graph: self,
+            direction,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct Neighbours<'a, NI, EI, const NP: usize>
+where
+    [EI; NP]: tinyvec::Array<Item = EI>,
+    EI: Default,
+    {
+    edges: std::slice::Iter<'a, EI>,
+    inline_graph: &'a InlineGraph<NI, EI, NP>,
+    direction: Direction,
+}
+
+impl<'a, NI, EI, const NP: usize> Iterator for Neighbours<'a, NI, EI, NP>
+where
+    [EI; NP]: tinyvec::Array<Item = EI>,
+    NI: EntityIndex,
+    EI: EntityIndex,
+{
+    type Item = NI;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.edges.next().map(move |e| {
+            self.inline_graph
+                .edge_endpoint(*e, self.direction)
+                .unwrap()
+                .0
+        })
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.edges.size_hint()
     }
 }
 
@@ -413,6 +454,53 @@ where
     NI: EntityIndex,
     EI: EntityIndex,
 {
+    fn new() -> Self {
+        Self::new()
+    }
+
+    fn with_capacity(nodes: usize, edges: usize) -> Self {
+        Self::with_capacity(nodes, edges)
+    }
+
+    fn register_node(&mut self, index: NI) {
+        if self.nodes.len() <= index.index() {
+            self.nodes.resize(index.index() + 1)
+        }
+    }
+
+    fn register_edge(&mut self, index: EI) {
+        if self.edges.len() <= index.index() {
+            self.edges.resize(index.index() + 1)
+        }
+    }
+
+    fn unregister_node(&mut self, _index: NI) {}
+
+    fn unregister_edge(&mut self, _index: EI) {}
+
+    fn shrink_to(&mut self, nodes: usize, edges: usize) {
+        self.nodes.resize(nodes);
+        self.edges.resize(edges);
+    }
+
+    fn insert_from(
+        &mut self,
+        other: &Self,
+        mut node_map: impl FnMut(NI) -> NI,
+        mut edge_map: impl FnMut(EI) -> EI,
+    ) {
+        for (node, data) in other.nodes.iter() {
+            let new_node = node_map(node);
+            self.register_node(new_node);
+            self.nodes[new_node] = data.clone();
+        }
+        for (edge, data) in other.edges.iter() {
+            let new_edge = edge_map(edge);
+            self.register_edge(new_edge);
+            self.edges[new_edge] = data.clone();
+        }
+    }
+
     fn rekey_node(&mut self, old: NI, new: NI) {
         if let Some(node_data) = self.nodes.rekey(old, new) {
             for (_, direction, edge) in node_data.edges_with_ports() {
@@ -431,41 +519,5 @@ where
                 }
             }
         }
-    }
-
-    fn new() -> Self {
-        todo!()
-    }
-
-    fn with_capacity(nodes: usize, edges: usize) -> Self {
-        todo!()
-    }
-
-    fn register_node(&mut self, index: NI) {
-        todo!()
-    }
-
-    fn register_edge(&mut self, index: EI) {
-        todo!()
-    }
-
-    fn unregister_node(&mut self, index: NI) {
-        todo!()
-    }
-
-    fn unregister_edge(&mut self, index: EI) {
-        todo!()
-    }
-
-    fn shrink_to(&mut self, nodes: NI, edges: EI) {
-        todo!()
-    }
-
-    fn insert_from(&mut self, other: &Self, node_map: impl FnMut(NI) -> NI, edge_map: impl FnMut(EI) -> EI) {
-        todo!()
-    }
-
-    fn reindex(&mut self, node_map: impl FnMut(NI) -> NI, edge_map: impl FnMut(EI) -> EI) {
-        todo!()
     }
 }
