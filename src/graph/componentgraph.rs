@@ -1,13 +1,14 @@
+use std::collections::HashMap;
 use std::hash::Hash;
 use std::marker::PhantomData;
 use thiserror::Error;
 
-use crate::adjacency::{Adjacency, AdjacencyMut};
+use crate::adjacency::AdjacencyMut;
 use crate::components::{Allocator, UnmanagedComponent, Weights};
 use crate::memory::EntityIndex;
 use crate::Insert;
 use crate::{ConnectError, Direction};
-use crate::{EdgeIndex, EdgeMap, NodeIndex, NodeMap};
+use crate::{EdgeIndex, NodeIndex};
 
 type DefaultAllocator<NI, EI> = PhantomData<(NI, EI)>; // TODO: define a good default
 type DefaultAdjacency<NI, EI> = PhantomData<(NI, EI)>; // TODO: define a good default
@@ -429,14 +430,20 @@ where
     ///
     /// [Graph::merge_edges] can be used along dangling edges to connect the inserted
     /// subgraph with the rest of the graph
-    pub fn insert_graph(&mut self, other: &Self) -> (NodeMap<NI>, EdgeMap<EI>) {
-        let (node_map, edge_map) = self.allocator_mut().insert_graph(other.allocator());
-        self.adjacency_mut().insert_graph(
+    pub fn insert_graph(&mut self, other: &Self) -> (HashMap<NI, NI>, HashMap<EI, EI>) {
+        let mut node_map = HashMap::with_capacity(other.node_count());
+        let mut edge_map = HashMap::with_capacity(other.edge_count());
+        self.allocator_mut().insert_from(
+            other.allocator(),
+            |old, new| {node_map.insert(old, new);},
+            |old, new| {edge_map.insert(old, new);},
+        );
+        self.adjacency_mut().insert_from(
             other.adjacency(),
             |i| *node_map.get(&i).unwrap(),
             |i| *edge_map.get(&i).unwrap(),
         );
-        self.weights_mut().insert_graph(
+        self.weights_mut().insert_from(
             other.weights(),
             |i| *node_map.get(&i).unwrap(),
             |i| *edge_map.get(&i).unwrap(),
@@ -475,8 +482,13 @@ where
     /// assert_eq!(edge_map, BTreeMap::from_iter([(e2, e1)]));
     /// assert!(graph.node_edges(n0, Direction::Outgoing).eq([e1]));
     /// ```
-    pub fn compact(&mut self) -> (NodeMap<NI>, EdgeMap<EI>) {
-        let (node_map, edge_map) = self.allocator_mut().compact();
+    pub fn compact(&mut self) -> (HashMap<NI, NI>, HashMap<EI, EI>) {
+        let mut node_map = HashMap::with_capacity(self.node_count());
+        let mut edge_map = HashMap::with_capacity(self.edge_count());
+        self.allocator_mut().compact(
+            |old, new| {node_map.insert(old, new);},
+            |old, new| {edge_map.insert(old, new);},
+        );
         self.adjacency_mut().reindex(
             |i| *node_map.get(&i).unwrap(),
             |i| *edge_map.get(&i).unwrap(),
@@ -544,7 +556,7 @@ where
                 into,
                 Insert::Index(from_port),
                 Direction::Outgoing,
-            );
+            ).map_err(|_| MergeEdgesError::AlreadyConnected)?;
         }
 
         Ok(self.remove_edge(from).unwrap())

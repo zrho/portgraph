@@ -4,8 +4,6 @@
 // pub mod substitute;
 // pub mod toposort;
 
-use std::collections::{BTreeMap, HashMap};
-
 use thiserror::Error;
 
 pub mod adjacency;
@@ -75,9 +73,6 @@ pub enum ConnectError {
     #[error("edges must be connected to the same node")]
     NodeMismatch,
 }
-
-type NodeMap<NI> = HashMap<NI, NI>; // TODO: use a generic interface
-type EdgeMap<EI> = HashMap<EI, EI>; // TODO: use a generic interface
 
 // #[cfg(feature = "pyo3")]
 // pub mod py_graph;

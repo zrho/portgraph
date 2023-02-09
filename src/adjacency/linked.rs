@@ -342,11 +342,11 @@ where
         todo!()
     }
 
-    fn insert_graph(&mut self, other: &Self, node_map: impl Fn(NI) -> NI, edge_map: impl Fn(EI) -> EI) {
+    fn insert_from(&mut self, other: &Self, node_map: impl FnMut(NI) -> NI, edge_map: impl FnMut(EI) -> EI) {
         todo!()
     }
 
-    fn reindex(&mut self, node_map: impl Fn(NI) -> NI, edge_map: impl Fn(EI) -> EI) {
+    fn reindex(&mut self, node_map: impl FnMut(NI) -> NI, edge_map: impl FnMut(EI) -> EI) {
         todo!()
     }
 }

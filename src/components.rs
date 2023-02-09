@@ -1,6 +1,6 @@
 use crate::memory::EntityIndex;
 
-use crate::{Direction, NodeIndex, EdgeIndex, NodeMap, EdgeMap};
+use crate::{Direction, NodeIndex, EdgeIndex};
 
 /// Core trait defining the capability of allocating new nodes and edges.
 /// All graph implementations must implement this trait.
@@ -45,15 +45,16 @@ where
     /// Any edge index higher to this bound is currently invalid.
     fn edge_bound(&self) -> EI;
 
-    /// Insert the elements of another allocator into this allocator.
+    /// Insert the elements of another allocator into this one.
     ///
-    /// Returns maps from the node and edge indices in the original graph to the
-    /// new indices which were allocated in this graph.
-    fn insert_graph(&mut self, other: &Self) -> (NodeMap<NI>, EdgeMap<EI>);
+    /// Calls `rename_node` and `rename_edge` for each index in `other`, passing the new index as
+    /// second argument.
+    fn insert_from(&mut self, other: &Self, rename_node: impl FnMut(NI, NI), rename_edge: impl FnMut(EI, EI));
 
     /// Reindex the nodes and edges to be contiguous.
     ///
-    /// Returns maps from the previous node and edge indices to their new indices.
+    /// Calls `rename_node` and `rename_edge` for each index, passing the new index as
+    /// second argument.
     ///
     /// Preserves the order of nodes and edges.
     ///
@@ -82,7 +83,7 @@ where
     /// assert_eq!(edge_map, BTreeMap::from_iter([(e2, e1)]));
     /// assert!(graph.node_edges(n0, Direction::Outgoing).eq([e1]));
     /// ```
-    fn compact(&mut self) -> (NodeMap<NI>, EdgeMap<EI>);
+    fn compact(&mut self, rename_node: impl FnMut(NI, NI), rename_edge: impl FnMut(EI, EI));
 
     /// Shrinks the graph's data store as much as possible.
     ///
@@ -207,10 +208,10 @@ pub trait UnmanagedComponent<NI, EI>: Default {
     fn shrink_to(&mut self, nodes: NI, edges: EI);
 
     /// Insert the elements of another adjacency into this adjacency.
-    fn insert_graph(&mut self, other: &Self, node_map: impl Fn(NI) -> NI, edge_map: impl Fn(EI) -> EI);
+    fn insert_from(&mut self, other: &Self, node_map: impl FnMut(NI) -> NI, edge_map: impl FnMut(EI) -> EI);
 
     /// Reindex the nodes and edges.
-    fn reindex(&mut self, node_map: impl Fn(NI) -> NI, edge_map: impl Fn(EI) -> EI);
+    fn reindex(&mut self, node_map: impl FnMut(NI) -> NI, edge_map: impl FnMut(EI) -> EI);
 
     /// Changes the key of a node.
     ///
