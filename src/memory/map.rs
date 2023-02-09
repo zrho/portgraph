@@ -101,6 +101,12 @@ impl<K: EntityIndex, V: Clone> SecondaryMap<K, V> {
             .enumerate()
             .map(|(i, value)| (EntityIndex::new(i), value))
     }
+
+    #[cold]
+    fn resize_index_mut(&mut self, index: usize) -> &mut V {
+        self.values.resize(index + 1, self.default.clone());
+        &mut self.values[index]
+    }
 }
 
 impl<K, V: Default + Clone> Default for SecondaryMap<K, V> {
@@ -123,9 +129,10 @@ impl<K: EntityIndex, V: Clone> IndexMut<K> for SecondaryMap<K, V> {
         let index = index.index();
 
         if index >= self.values.len() {
-            self.values.resize(index + 1, self.default.clone());
+            // This method is marked as cold
+            self.resize_index_mut(index)
+        } else {
+            &mut self.values[index]
         }
-
-        &mut self.values[index]
     }
 }
