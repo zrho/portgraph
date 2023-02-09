@@ -3,6 +3,7 @@ use std::{
     convert::Infallible,
     iter::FusedIterator,
     marker::PhantomData,
+    mem::MaybeUninit,
     ops::{Index, IndexMut},
 };
 
@@ -11,11 +12,17 @@ use crate::memory::EntityIndex;
 use super::{IndexPool, IndexPoolAlloc, IndexPoolIter};
 
 /// Slab index pool that manages fixed-sized objects with stable indices.
-#[derive(Debug, Clone, PartialEq, Eq)]
+///
+/// Indices are allocated sequentially in a vector. When an index is freed it is
+/// inserted into a free list to be reused. In particular, this index pool is affected by the ABA problem.
+#[derive(Debug, Clone)]
 pub struct SlabIndexPool<K, V> {
+    /// Entries in the pool, either full or part of the free list.
+    ///
+    /// The length of this vector is always at most `u32::MAX`.
     data: Vec<Entry<V>>,
     /// Index of the next free entry. This is exactly the length of the `data` vector when the array is full.
-    free_next: usize,
+    free_next: u32,
     /// The number of filled entries.
     len: usize,
     phantom: PhantomData<K>,
@@ -48,6 +55,31 @@ where
             _ => None,
         }
     }
+
+    fn get_disjoint_mut<const N: usize>(
+        &mut self,
+        indices: [Self::Index; N],
+    ) -> Option<[&mut Self::Value; N]> {
+        let mut ptrs: [MaybeUninit<*mut Self::Value>; N] =
+            unsafe { MaybeUninit::uninit().assume_init() };
+
+        // NOTE: This is a quadratic check. That is not a problem for very small
+        // `N` but it would be nice if it could be avoided. See
+        // https://docs.rs/slotmap/latest/slotmap/struct.SlotMap.html#method.get_disjoint_mut
+        // for a linear time implementation. Unfortunately their trick is not
+        // applicable here since we do not have the extra tagging bit available.
+        for (i, index) in indices.iter().enumerate() {
+            ptrs[i] = MaybeUninit::new(self.get_mut(*index)?);
+
+            if indices.iter().skip(i + 1).any(|other| index == other) {
+                return None;
+            }
+        }
+
+        // SAFETY: The pointers come from valid borrows into the underlying
+        // array and we have checked their disjointness.
+        Some(unsafe { std::mem::transmute_copy::<_, [&mut Self::Value; N]>(&indices) })
+    }
 }
 
 impl<K, V> IndexPoolAlloc for SlabIndexPool<K, V>
@@ -59,18 +91,22 @@ where
     fn allocate(&mut self, value: Self::Value) -> Result<Self::Index, Self::AllocError> {
         let index = self.free_next;
 
-        if index == self.data.len() {
+        if index == u32::MAX {
+            panic!("SlabIndexPool may only hold up to u32::MAX values");
+        }
+
+        if index == self.data.len() as u32 {
             self.data.push(Entry::Full(value));
             self.free_next += 1;
         } else {
-            let Entry::Free(next) = self.data[index] else { unreachable!() };
+            let Entry::Free(next) = self.data[index as usize] else { unreachable!() };
             self.free_next = next;
-            self.data[index] = Entry::Full(value);
+            self.data[index as usize] = Entry::Full(value);
         }
 
         self.len += 1;
 
-        Ok(K::new(index))
+        Ok(K::new(index as usize))
     }
 
     fn reserve(&mut self, n: usize) -> Result<(), Self::AllocError> {
@@ -94,7 +130,7 @@ where
                 None
             }
             Entry::Full(value) => {
-                self.free_next = index;
+                self.free_next = index as u32;
                 self.len -= 1;
                 Some(value)
             }
@@ -130,7 +166,7 @@ where
             }
         });
 
-        self.free_next = self.data.len();
+        self.free_next = self.data.len() as u32;
     }
 }
 
@@ -170,7 +206,7 @@ impl<K, V> SlabIndexPool<K, V>
 where
     K: EntityIndex,
 {
-    /// Creates an empty [`Slab<K, V>`].
+    /// Creates an empty [`SlabIndexPool<K, V>`].
     pub fn new() -> Self {
         Self {
             data: Vec::new(),
@@ -203,38 +239,7 @@ where
     /// Returns the index at which the next entry will be inserted.
     #[inline(always)]
     pub fn next_index(&self) -> K {
-        K::new(self.free_next)
-    }
-
-    // TODO: Add a `get_mut_disjoint` function with nice API to `IndexPool`
-    pub fn get_mut_2(&mut self, key0: K, key1: K) -> Option<(&mut V, &mut V)> {
-        let index0 = key0.index();
-        let index1 = key1.index();
-
-        let entries = match index0.cmp(&index1) {
-            Ordering::Less => {
-                let (slice0, slice1) = self.data.split_at_mut(index1);
-                (slice0.get_mut(index0), slice1.get_mut(0))
-            }
-            Ordering::Greater => {
-                let (slice1, slice0) = self.data.split_at_mut(index0);
-                (slice0.get_mut(0), slice1.get_mut(index1))
-            }
-            Ordering::Equal => panic!(),
-        };
-
-        match entries {
-            (Some(Entry::Full(value0)), Some(Entry::Full(value1))) => Some((value0, value1)),
-            _ => None,
-        }
-    }
-
-    pub fn iter(&self) -> Iter<'_, K, V> {
-        Iter::new(self)
-    }
-
-    pub fn iter_mut(&mut self) -> IterMut<'_, K, V> {
-        IterMut::new(self)
+        K::new(self.free_next as usize)
     }
 
     #[must_use]
@@ -242,10 +247,14 @@ where
     where
         I: IntoIterator<Item = V>,
     {
-        // TODO: Reserve according to minimum size hint bound
+        // TODO: This should be implemented generally for `IndexPoolAlloc`.
+        let values = values.into_iter();
+
+        self.reserve(values.size_hint().0).unwrap();
+
         Extend {
             slab: self,
-            values: values.into_iter(),
+            values: values,
         }
     }
 
@@ -255,8 +264,6 @@ where
         self.data.shrink_to_fit()
     }
 
-    // TODO Reserve
-    // TODO Compact
     // TODO Nicer debug representation
 }
 
@@ -291,7 +298,7 @@ where
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Entry<V> {
-    Free(usize),
+    Free(u32),
     Full(V),
 }
 
@@ -303,7 +310,7 @@ where
 {
     #[inline]
     fn new(slab: &'a SlabIndexPool<K, V>) -> Self {
-        Self(slab.iter())
+        Self(slab.values())
     }
 }
 
@@ -409,7 +416,7 @@ where
 
     #[inline]
     fn into_iter(self) -> Self::IntoIter {
-        self.iter()
+        self.values()
     }
 }
 
@@ -478,7 +485,7 @@ where
     type IntoIter = IterMut<'a, K, V>;
 
     fn into_iter(self) -> Self::IntoIter {
-        self.iter_mut()
+        self.values_mut()
     }
 }
 

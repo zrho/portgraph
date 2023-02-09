@@ -3,13 +3,14 @@ use std::error::Error;
 
 pub mod slab;
 
+pub use slab::SlabIndexPool;
+
 /// Memory pool which manages indices and associated values.
 ///
 /// There is a wide design space for implementors of this trait.
 ///
 ///  - Generational indices.
 ///  - Bitsets and free lists.
-///  - Bump allocation without the possibility to free.
 ///  - Locality optimisations such as local free lists.
 pub trait IndexPool: std::ops::IndexMut<Self::Index, Output = Self::Value> {
     /// Index into the pool.
@@ -27,9 +28,15 @@ pub trait IndexPool: std::ops::IndexMut<Self::Index, Output = Self::Value> {
 
     /// Mutably borrows the value associated to an `index`.
     fn get_mut(&mut self, index: Self::Index) -> Option<&mut Self::Value>;
+
+    /// Mutably borrows the values of a disjoint collection of `indices`.
+    fn get_disjoint_mut<const N: usize>(
+        &mut self,
+        indices: [Self::Index; N],
+    ) -> Option<[&mut Self::Value; N]>;
 }
 
-/// [`IndexPool`] that allows to allocate indices.
+/// [`IndexPool`] that allows to allocate and free indices.
 pub trait IndexPoolAlloc: IndexPool {
     /// Error that can occur during allocation, e.g. when exceeding the capacity
     /// of a pool with finite capacity. In cases that this can not happen (apart
@@ -68,9 +75,7 @@ pub trait IndexPoolAlloc: IndexPool {
     fn reserve(&mut self, n: usize) -> Result<(), Self::AllocError>;
 
     /// Attempts to free an `index`, returning its associated value. Returns
-    /// `None` if the index is not allocated at this point. When a pool can not
-    /// free an allocated value, it may return `None` as well, in which case the
-    /// index will remain valid.
+    /// `None` if the index is not allocated at this point.
     fn free(&mut self, index: Self::Index) -> Option<Self::Value>;
 
     /// Clears the pool by freeing all indices at once.
