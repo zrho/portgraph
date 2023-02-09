@@ -88,7 +88,7 @@ where
     ///
     /// See [`Allocator::node_indices`].
     #[inline(always)]
-    pub fn node_indices(&self) -> Ac::NodeIndicesIterator<'_> {
+    pub fn node_indices(&self) -> Ac::NodeIndices<'_> {
         self.allocator().node_indices()
     }
 
@@ -96,7 +96,7 @@ where
     ///
     /// See [`Allocator::edge_indices`].
     #[inline(always)]
-    pub fn edge_indices(&self) -> Ac::EdgeIndicesIterator<'_> {
+    pub fn edge_indices(&self) -> Ac::EdgeIndices<'_> {
         self.allocator().edge_indices()
     }
 }
@@ -139,7 +139,7 @@ where
     ///
     /// See [`Adjacency::neighbours`].
     #[inline(always)]
-    pub fn neighbours(&self, n: NI, direction: Direction) -> Adj::Neighbors<'_> {
+    pub fn neighbours(&self, n: NI, direction: Direction) -> Adj::Neighbours<'_> {
         self.adjacency().neighbours(n, direction)
     }
 
@@ -219,7 +219,7 @@ where
     ///
     /// See [`Weights::node_weights`].
     #[inline(always)]
-    pub fn node_weights(&self) -> Ws::NodeWeightsIterator<'_> {
+    pub fn node_weights(&self) -> Ws::NodeWeights<'_> {
         self.weights().node_weights()
     }
 
@@ -243,7 +243,7 @@ where
     ///
     /// See [`Weights::edge_weights`].
     #[inline(always)]
-    pub fn edge_weights(&self) -> Ws::EdgeWeightsIterator<'_> {
+    pub fn edge_weights(&self) -> Ws::EdgeWeights<'_> {
         self.weights().edge_weights()
     }
 
@@ -267,7 +267,7 @@ where
     ///
     /// See [`Weights::port_weights`].
     #[inline(always)]
-    pub fn port_weights(&self) -> Ws::PortWeightsIterator<'_> {
+    pub fn port_weights(&self) -> Ws::PortWeights<'_> {
         self.weights().port_weights()
     }
 }

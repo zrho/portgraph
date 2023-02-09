@@ -39,12 +39,12 @@ where
     EI: EntityIndex,
 {
     /// Iterator over the indices of all nodes in the graph.
-    type NodeIndicesIterator<'a>: Iterator<Item = NI>
+    type NodeIndices<'a>: Iterator<Item = NI>
     where
         Self: 'a;
 
     /// Iterator over the indices of all edges in the graph.
-    type EdgeIndicesIterator<'a>: Iterator<Item = EI>
+    type EdgeIndices<'a>: Iterator<Item = EI>
     where
         Self: 'a;
 
@@ -154,10 +154,10 @@ where
     ///
     /// assert!(graph.node_indices().eq([n0, n2]));
     /// ```
-    fn node_indices<'a>(&'a self) -> Self::NodeIndicesIterator<'a>;
+    fn node_indices<'a>(&'a self) -> Self::NodeIndices<'a>;
 
     /// Iterator over the edge indices of the graph.
-    fn edge_indices<'a>(&'a self) -> Self::EdgeIndicesIterator<'a>;
+    fn edge_indices<'a>(&'a self) -> Self::EdgeIndices<'a>;
 }
 
 /// Trait for graphs that encode edges connecting nodes.
@@ -168,7 +168,7 @@ where
     PI: EntityIndex,
 {
     /// Iterator over the indices of the nodes connected to the given node.
-    type Neighbors<'a>: Iterator<Item = NI>
+    type Neighbours<'a>: Iterator<Item = NI>
     where
         Self: 'a;
     /// Iterator over the indices of the edges connected to the given node.
@@ -199,7 +199,7 @@ where
     }
 
     /// Iterate over connected nodes.
-    fn neighbours(& self, n: NI, direction: Direction) -> Self::Neighbors<'_>;
+    fn neighbours(& self, n: NI, direction: Direction) -> Self::Neighbours<'_>;
 
     /// The endpoint of an edge in a given direction.
     ///
@@ -375,15 +375,15 @@ where
     EI: EntityIndex,
     PI: EntityIndex,
 {
-    type NodeWeightsIterator<'a>: Iterator<Item = (NI, &'a N)>
+    type NodeWeights<'a>: Iterator<Item = (NI, &'a N)>
     where
         Self: 'a,
         N: 'a;
-    type EdgeWeightsIterator<'a>: Iterator<Item = (EI, &'a E)>
+    type EdgeWeights<'a>: Iterator<Item = (EI, &'a E)>
     where
         Self: 'a,
         E: 'a;
-    type PortWeightsIterator<'a>: Iterator<Item = (PI, &'a P)>
+    type PortWeights<'a>: Iterator<Item = (PI, &'a P)>
     where
         Self: 'a,
         P: 'a;
@@ -424,7 +424,7 @@ where
     fn node_weight_mut(&mut self, a: NI) -> Option<&mut N>;
 
     /// Iterator over the node weights of the graph.
-    fn node_weights<'a>(&'a self) -> Self::NodeWeightsIterator<'a>;
+    fn node_weights<'a>(&'a self) -> Self::NodeWeights<'a>;
 
     /// A reference to the weight of the edge with a given index.
     fn edge_weight(&self, e: EI) -> Option<&E>;
@@ -433,7 +433,7 @@ where
     fn edge_weight_mut(&mut self, e: EI) -> Option<&mut E>;
 
     /// Iterator over the edge weights of the graph.
-    fn edge_weights<'a>(&'a self) -> Self::EdgeWeightsIterator<'a>;
+    fn edge_weights<'a>(&'a self) -> Self::EdgeWeights<'a>;
 
     /// A reference to the weight of the port with a given index.
     fn port_weight(&self, e: PI) -> Option<&P>;
@@ -442,5 +442,5 @@ where
     fn port_weight_mut(&mut self, e: PI) -> Option<&mut P>;
 
     /// Iterator over the port weights of the graph.
-    fn port_weights<'a>(&'a self) -> Self::PortWeightsIterator<'a>;
+    fn port_weights<'a>(&'a self) -> Self::PortWeights<'a>;
 }
