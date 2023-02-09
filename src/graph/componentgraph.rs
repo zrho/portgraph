@@ -1,9 +1,7 @@
 use std::marker::PhantomData;
 
-use super::components::{Allocator, Connectivity, Weights};
-use super::{
-    ConnectError, Direction, EdgeIndex, EdgeMap, MergeEdgesError, NodeIndex, NodeMap, PortIndex,
-};
+use super::components::{Allocator, Connectivity, Weights, MergeEdgesError, NodeMap, EdgeMap, NodeIndex, EdgeIndex, PortIndex};
+use super::{ConnectError, Direction};
 use crate::memory::EntityIndex;
 
 pub struct DefaultAllocator<NI, EI> {
@@ -433,7 +431,7 @@ where
     ///
     /// [Graph::merge_edges] can be used along dangling edges to connect the inserted
     /// subgraph with the rest of the graph
-    pub fn insert_graph(&mut self, other: &Self) -> (NodeMap, EdgeMap) {
+    pub fn insert_graph(&mut self, other: &Self) -> (NodeMap<NI>, EdgeMap<EI>) {
         let (node_map, edge_map) = self.allocator_mut().insert_graph(other.allocator());
         self.connectivity_mut()
             .insert_graph(other.connectivity(), &node_map, &edge_map);
@@ -473,7 +471,7 @@ where
     /// assert_eq!(edge_map, BTreeMap::from_iter([(e2, e1)]));
     /// assert!(graph.node_edges(n0, Direction::Outgoing).eq([e1]));
     /// ```
-    pub fn compact(&mut self) -> (NodeMap, EdgeMap) {
+    pub fn compact(&mut self) -> (NodeMap<NI>, EdgeMap<EI>) {
         let (node_map, edge_map) = self.allocator_mut().compact();
         self.connectivity_mut().reindex(&node_map, &edge_map);
         self.weights_mut().reindex(&node_map, &edge_map);

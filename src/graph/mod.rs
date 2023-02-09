@@ -5,8 +5,8 @@
 //! dangling edges which are not connected to a node on one or both sides.
 
 use thiserror::Error;
-//pub mod componentgraph;
-//pub mod components;
+pub mod componentgraph;
+pub mod components;
 pub mod inline;
 pub mod linked;
 

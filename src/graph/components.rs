@@ -1,8 +1,25 @@
-use crate::memory::EntityIndex;
+use std::collections::BTreeMap;
+
+use thiserror::Error;
+
+use crate::{memory::EntityIndex, make_entity};
 
 use super::{
-    ConnectError, Direction, EdgeIndex, EdgeMap, MergeEdgesError, NodeIndex, NodeMap, PortIndex,
+    ConnectError, Direction
 };
+
+make_entity! {
+    pub struct NodeIndex(u32);
+    pub struct RegionIndex(u32);
+    pub struct EdgeIndex(u32);
+    pub struct PortIndex(u32);
+}
+
+/// Map of updated node indices after a graph operation.
+pub type NodeMap<NI> = BTreeMap<NI, NI>;
+
+/// Map of updated edge indices after a graph operation.
+pub type EdgeMap<EI> = BTreeMap<EI, EI>;
 
 /// Core trait defining the capability of allocating new nodes and edges.
 /// All graph implementations must implement this trait.
@@ -51,7 +68,7 @@ where
     ///
     /// Returns maps from the node and edge indices in the original graph to the
     /// new indices which were allocated in this graph.
-    fn insert_graph(&mut self, other: &Self) -> (NodeMap, EdgeMap);
+    fn insert_graph(&mut self, other: &Self) -> (NodeMap<NI>, EdgeMap<EI>);
 
     /// Reindex the nodes and edges to be contiguous.
     ///
@@ -84,7 +101,7 @@ where
     /// assert_eq!(edge_map, BTreeMap::from_iter([(e2, e1)]));
     /// assert!(graph.node_edges(n0, Direction::Outgoing).eq([e1]));
     /// ```
-    fn compact(&mut self) -> (NodeMap, EdgeMap);
+    fn compact(&mut self) -> (NodeMap<NI>, EdgeMap<EI>);
 
     /// Shrinks the graph's data store as much as possible.
     ///
@@ -168,10 +185,10 @@ where
     fn unregister_edge(&mut self, index: EI);
 
     /// Insert the elements of another connectivity into this connectivity.
-    fn insert_graph(&mut self, other: &Self, node_map: &NodeMap, edge_map: &EdgeMap);
+    fn insert_graph(&mut self, other: &Self, node_map: &NodeMap<NI>, edge_map: &EdgeMap<EI>);
 
     /// Reindex the nodes and edges.
-    fn reindex(&mut self, node_map: &NodeMap, edge_map: &EdgeMap);
+    fn reindex(&mut self, node_map: &NodeMap<NI>, edge_map: &EdgeMap<EI>);
 
     /// Shrinks the graph's data store.
     fn shrink_to(&mut self, nodes: NI, edges: EI);
@@ -338,10 +355,10 @@ where
     fn unregister_edge(&mut self, index: EI) -> Option<E>;
 
     /// Insert the elements of another connectivity into this connectivity.
-    fn insert_graph(&mut self, other: &Self, node_map: &NodeMap, edge_map: &EdgeMap);
+    fn insert_graph(&mut self, other: &Self, node_map: &NodeMap<NI>, edge_map: &EdgeMap<EI>);
 
     /// Reindex the nodes and edges.
-    fn reindex(&mut self, node_map: &NodeMap, edge_map: &EdgeMap);
+    fn reindex(&mut self, node_map: &NodeMap<NI>, edge_map: &EdgeMap<EI>);
 
     /// Shrinks the graph's data store.
     fn shrink_to(&mut self, nodes: NI, edges: EI);
@@ -374,4 +391,13 @@ where
 
     /// Iterator over the port weights of the graph.
     fn port_weights<'a>(&'a self) -> Self::PortWeightsIterator<'a>;
+}
+
+/// Error returned by [Graph::merge_edges].
+#[derive(Debug, Error)]
+pub enum MergeEdgesError {
+    #[error("unknown edge")]
+    UnknownEdge,
+    #[error("edge is already connected")]
+    AlreadyConnected,
 }
