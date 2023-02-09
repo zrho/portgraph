@@ -1,6 +1,8 @@
 //! Components which manage indices.
 use std::error::Error;
 
+pub mod slab;
+
 /// Memory pool which manages indices and associated values.
 ///
 /// There is a wide design space for implementors of this trait.

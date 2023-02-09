@@ -1,5 +1,6 @@
 use std::{
     cmp::Ordering,
+    convert::Infallible,
     iter::FusedIterator,
     marker::PhantomData,
     ops::{Index, IndexMut},
@@ -7,16 +8,165 @@ use std::{
 
 use crate::memory::EntityIndex;
 
-/// A slab arena that manages fixed-sized objects.
+use super::{IndexPool, IndexPoolAlloc, IndexPoolIter};
+
+/// Slab index pool that manages fixed-sized objects with stable indices.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Slab<K, V> {
+pub struct SlabIndexPool<K, V> {
     data: Vec<Entry<V>>,
-    free: usize,
+    /// Index of the next free entry. This is exactly the length of the `data` vector when the array is full.
+    free_next: usize,
+    /// The number of filled entries.
     len: usize,
     phantom: PhantomData<K>,
 }
 
-impl<K, V> Slab<K, V>
+impl<K, V> IndexPool for SlabIndexPool<K, V>
+where
+    K: EntityIndex,
+{
+    type Index = K;
+    type Value = V;
+
+    #[inline]
+    fn contains(&self, index: Self::Index) -> bool {
+        matches!(self.data.get(index.index()), Some(Entry::Full(_)))
+    }
+
+    #[inline]
+    fn get(&self, index: Self::Index) -> Option<&Self::Value> {
+        match self.data.get(index.index()) {
+            Some(Entry::Full(value)) => Some(value),
+            _ => None,
+        }
+    }
+
+    #[inline]
+    fn get_mut(&mut self, index: Self::Index) -> Option<&mut Self::Value> {
+        match self.data.get_mut(index.index()) {
+            Some(Entry::Full(value)) => Some(value),
+            _ => None,
+        }
+    }
+}
+
+impl<K, V> IndexPoolAlloc for SlabIndexPool<K, V>
+where
+    K: EntityIndex,
+{
+    type AllocError = Infallible;
+
+    fn allocate(&mut self, value: Self::Value) -> Result<Self::Index, Self::AllocError> {
+        let index = self.free_next;
+
+        if index == self.data.len() {
+            self.data.push(Entry::Full(value));
+            self.free_next += 1;
+        } else {
+            let Entry::Free(next) = self.data[index] else { unreachable!() };
+            self.free_next = next;
+            self.data[index] = Entry::Full(value);
+        }
+
+        self.len += 1;
+
+        Ok(K::new(index))
+    }
+
+    fn reserve(&mut self, n: usize) -> Result<(), Self::AllocError> {
+        // Only reserve capacity that couldn't be serviced by the free list
+        if let Some(extra_capacity) = n.checked_sub(self.free_list_len()) {
+            self.data.reserve(extra_capacity)
+        }
+
+        Ok(())
+    }
+
+    fn free(&mut self, index: Self::Index) -> Option<Self::Value> {
+        let index = index.index();
+        let entry = self.data.get_mut(index)?;
+
+        let entry_data = std::mem::replace(entry, Entry::Free(self.free_next));
+
+        match entry_data {
+            Entry::Free(_) => {
+                *entry = entry_data;
+                None
+            }
+            Entry::Full(value) => {
+                self.free_next = index;
+                self.len -= 1;
+                Some(value)
+            }
+        }
+    }
+
+    #[inline]
+    fn clear(&mut self) {
+        self.data.clear();
+        self.free_next = 0;
+        self.len = 0;
+    }
+
+    fn compact<F>(&mut self, mut rekey: F)
+    where
+        F: FnMut(&mut Self::Value, Self::Index, Self::Index),
+    {
+        // See https://docs.rs/slab/latest/slab/struct.Slab.html#method.compact for a more sophisticated version of this
+
+        let mut old_index = 0;
+        let mut new_index = 0;
+
+        self.data.retain_mut(|entry| match entry {
+            Entry::Free(_) => {
+                old_index += 1;
+                false
+            }
+            Entry::Full(value) => {
+                rekey(value, K::new(old_index), K::new(new_index));
+                old_index += 1;
+                new_index += 1;
+                true
+            }
+        });
+
+        self.free_next = self.data.len();
+    }
+}
+
+impl<K, V> IndexPoolIter for SlabIndexPool<K, V>
+where
+    K: EntityIndex,
+{
+    type Indices<'a> = IndexIter<'a, K, V>
+    where
+        Self: 'a;
+
+    type Values<'a> = Iter<'a, K, V>
+    where
+        Self: 'a;
+
+    type ValuesMut<'a> = IterMut<'a, K, V>
+    where
+        Self: 'a;
+
+    #[inline]
+    fn indices(&self) -> Self::Indices<'_> {
+        IndexIter::new(self)
+    }
+
+    #[inline]
+    fn values(&self) -> Self::Values<'_> {
+        Iter::new(self)
+    }
+
+    #[inline]
+    fn values_mut(&mut self) -> Self::ValuesMut<'_> {
+        IterMut::new(self)
+    }
+}
+
+impl<K, V> SlabIndexPool<K, V>
 where
     K: EntityIndex,
 {
@@ -24,7 +174,7 @@ where
     pub fn new() -> Self {
         Self {
             data: Vec::new(),
-            free: 0,
+            free_next: 0,
             len: 0,
             phantom: PhantomData,
         }
@@ -33,20 +183,16 @@ where
     pub fn with_capacity(capacity: usize) -> Self {
         Self {
             data: Vec::with_capacity(capacity),
-            free: 0,
+            free_next: 0,
             len: 0,
             phantom: PhantomData,
         }
     }
 
-    /// Returns the number of stored values.
-    pub fn len(&self) -> usize {
-        self.len
-    }
-
-    /// Returns whether there is no stored value.
-    pub fn is_empty(&self) -> bool {
-        self.len == 0
+    /// Length of the free list.
+    #[inline]
+    fn free_list_len(&self) -> usize {
+        self.data.len() - self.len
     }
 
     /// Returns an upper bound on a valid index in this slab.
@@ -54,68 +200,13 @@ where
         K::new(self.data.len())
     }
 
-    pub fn contains(&self, key: K) -> bool {
-        matches!(self.data.get(key.index()), Some(Entry::Full(_)))
-    }
-
     /// Returns the index at which the next entry will be inserted.
     #[inline(always)]
     pub fn next_index(&self) -> K {
-        K::new(self.free)
+        K::new(self.free_next)
     }
 
-    pub fn insert(&mut self, value: V) -> K {
-        let index = self.free;
-
-        if index == self.data.len() {
-            self.data.push(Entry::Full(value));
-            self.free += 1;
-        } else {
-            let Entry::Free(next) = self.data[index] else { unreachable!() };
-            self.free = next;
-            self.data[index] = Entry::Full(value);
-        }
-
-        self.len += 1;
-
-        K::new(index)
-    }
-
-    pub fn remove(&mut self, key: K) -> Option<V> {
-        let index = key.index();
-        let entry = self.data.get_mut(index)?;
-
-        let entry_data = std::mem::replace(entry, Entry::Free(self.free));
-
-        match entry_data {
-            Entry::Free(_) => {
-                *entry = entry_data;
-                None
-            }
-            Entry::Full(value) => {
-                self.free = index;
-                self.len -= 1;
-                Some(value)
-            }
-        }
-    }
-
-    #[inline]
-    pub fn get(&self, key: K) -> Option<&V> {
-        match self.data.get(key.index()) {
-            Some(Entry::Full(value)) => Some(value),
-            _ => None,
-        }
-    }
-
-    #[inline]
-    pub fn get_mut(&mut self, key: K) -> Option<&mut V> {
-        match self.data.get_mut(key.index()) {
-            Some(Entry::Full(value)) => Some(value),
-            _ => None,
-        }
-    }
-
+    // TODO: Add a `get_mut_disjoint` function with nice API to `IndexPool`
     pub fn get_mut_2(&mut self, key0: K, key1: K) -> Option<(&mut V, &mut V)> {
         let index0 = key0.index();
         let index1 = key1.index();
@@ -136,12 +227,6 @@ where
             (Some(Entry::Full(value0)), Some(Entry::Full(value1))) => Some((value0, value1)),
             _ => None,
         }
-    }
-
-    pub fn clear(&mut self) {
-        self.data.clear();
-        self.free = 0;
-        self.len = 0;
     }
 
     pub fn iter(&self) -> Iter<'_, K, V> {
@@ -170,40 +255,12 @@ where
         self.data.shrink_to_fit()
     }
 
-    /// Compacts the slab by moving all entries to the front.
-    ///
-    /// Calls a `rekey` function with the old and new key for every entry.
-    pub fn compact<F>(&mut self, mut rekey: F)
-    where
-        F: FnMut(&mut V, K, K),
-    {
-        // See https://docs.rs/slab/latest/slab/struct.Slab.html#method.compact for a more sophisticated version of this
-
-        let mut old_index = 0;
-        let mut new_index = 0;
-
-        self.data.retain_mut(|entry| match entry {
-            Entry::Free(_) => {
-                old_index += 1;
-                false
-            }
-            Entry::Full(value) => {
-                rekey(value, K::new(old_index), K::new(new_index));
-                old_index += 1;
-                new_index += 1;
-                true
-            }
-        });
-
-        self.free = self.data.len();
-    }
-
     // TODO Reserve
     // TODO Compact
     // TODO Nicer debug representation
 }
 
-impl<K, V> Index<K> for Slab<K, V>
+impl<K, V> Index<K> for SlabIndexPool<K, V>
 where
     K: EntityIndex,
 {
@@ -214,7 +271,7 @@ where
     }
 }
 
-impl<K, V> IndexMut<K> for Slab<K, V>
+impl<K, V> IndexMut<K> for SlabIndexPool<K, V>
 where
     K: EntityIndex,
 {
@@ -223,7 +280,7 @@ where
     }
 }
 
-impl<K, V> Default for Slab<K, V>
+impl<K, V> Default for SlabIndexPool<K, V>
 where
     K: EntityIndex,
 {
@@ -238,6 +295,53 @@ enum Entry<V> {
     Full(V),
 }
 
+pub struct IndexIter<'a, K, V>(Iter<'a, K, V>);
+
+impl<'a, K, V> IndexIter<'a, K, V>
+where
+    K: EntityIndex,
+{
+    #[inline]
+    fn new(slab: &'a SlabIndexPool<K, V>) -> Self {
+        Self(slab.iter())
+    }
+}
+
+impl<'a, K, V> Iterator for IndexIter<'a, K, V>
+where
+    K: EntityIndex,
+{
+    type Item = K;
+
+    #[inline]
+    fn next(&mut self) -> Option<Self::Item> {
+        let (index, _) = self.0.next()?;
+        Some(index)
+    }
+
+    #[inline]
+    fn count(self) -> usize {
+        self.0.count()
+    }
+
+    #[inline]
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.0.size_hint()
+    }
+}
+
+impl<'a, K, V> ExactSizeIterator for IndexIter<'a, K, V>
+where
+    K: EntityIndex,
+{
+    #[inline]
+    fn len(&self) -> usize {
+        self.0.len()
+    }
+}
+
+impl<'a, K, V> FusedIterator for IndexIter<'a, K, V> where K: EntityIndex {}
+
 pub struct Iter<'a, K, V> {
     entries: std::iter::Enumerate<std::slice::Iter<'a, Entry<V>>>,
     len: usize,
@@ -245,7 +349,8 @@ pub struct Iter<'a, K, V> {
 }
 
 impl<'a, K, V> Iter<'a, K, V> {
-    fn new(slab: &'a Slab<K, V>) -> Self {
+    #[inline]
+    fn new(slab: &'a SlabIndexPool<K, V>) -> Self {
         Self {
             entries: slab.data.iter().enumerate(),
             len: slab.len,
@@ -272,6 +377,12 @@ where
         None
     }
 
+    #[inline]
+    fn count(self) -> usize {
+        self.len()
+    }
+
+    #[inline]
     fn size_hint(&self) -> (usize, Option<usize>) {
         (self.len, Some(self.len))
     }
@@ -281,6 +392,7 @@ impl<'a, K, V> ExactSizeIterator for Iter<'a, K, V>
 where
     K: EntityIndex,
 {
+    #[inline]
     fn len(&self) -> usize {
         self.len
     }
@@ -288,13 +400,14 @@ where
 
 impl<'a, K, V> FusedIterator for Iter<'a, K, V> where K: EntityIndex {}
 
-impl<'a, K, V> IntoIterator for &'a Slab<K, V>
+impl<'a, K, V> IntoIterator for &'a SlabIndexPool<K, V>
 where
     K: EntityIndex,
 {
     type Item = (K, &'a V);
     type IntoIter = Iter<'a, K, V>;
 
+    #[inline]
     fn into_iter(self) -> Self::IntoIter {
         self.iter()
     }
@@ -307,7 +420,8 @@ pub struct IterMut<'a, K, V> {
 }
 
 impl<'a, K, V> IterMut<'a, K, V> {
-    fn new(slab: &'a mut Slab<K, V>) -> Self {
+    #[inline]
+    fn new(slab: &'a mut SlabIndexPool<K, V>) -> Self {
         Self {
             entries: slab.data.iter_mut().enumerate(),
             len: slab.len,
@@ -334,6 +448,12 @@ where
         None
     }
 
+    #[inline]
+    fn count(self) -> usize {
+        self.len()
+    }
+
+    #[inline]
     fn size_hint(&self) -> (usize, Option<usize>) {
         (self.len, Some(self.len))
     }
@@ -350,7 +470,7 @@ where
 
 impl<'a, K, V> FusedIterator for IterMut<'a, K, V> where K: EntityIndex {}
 
-impl<'a, K, V> IntoIterator for &'a mut Slab<K, V>
+impl<'a, K, V> IntoIterator for &'a mut SlabIndexPool<K, V>
 where
     K: EntityIndex,
 {
@@ -369,7 +489,8 @@ pub struct IntoIter<K, V> {
 }
 
 impl<K, V> IntoIter<K, V> {
-    fn new(slab: Slab<K, V>) -> Self {
+    #[inline]
+    fn new(slab: SlabIndexPool<K, V>) -> Self {
         Self {
             entries: slab.data.into_iter().enumerate(),
             len: slab.len,
@@ -396,6 +517,12 @@ where
         None
     }
 
+    #[inline]
+    fn count(self) -> usize {
+        self.len()
+    }
+
+    #[inline]
     fn size_hint(&self) -> (usize, Option<usize>) {
         (self.len, Some(self.len))
     }
@@ -405,6 +532,7 @@ impl<K, V> ExactSizeIterator for IntoIter<K, V>
 where
     K: EntityIndex,
 {
+    #[inline]
     fn len(&self) -> usize {
         self.len
     }
@@ -412,20 +540,21 @@ where
 
 impl<K, V> FusedIterator for IntoIter<K, V> where K: EntityIndex {}
 
-impl<K, V> IntoIterator for Slab<K, V>
+impl<K, V> IntoIterator for SlabIndexPool<K, V>
 where
     K: EntityIndex,
 {
     type Item = (K, V);
     type IntoIter = IntoIter<K, V>;
 
+    #[inline]
     fn into_iter(self) -> Self::IntoIter {
         IntoIter::new(self)
     }
 }
 
 pub struct Extend<'a, K, V, I> {
-    slab: &'a mut Slab<K, V>,
+    slab: &'a mut SlabIndexPool<K, V>,
     values: I,
 }
 
@@ -438,9 +567,10 @@ where
 
     fn next(&mut self) -> Option<Self::Item> {
         let value = self.values.next()?;
-        Some(self.slab.insert(value))
+        Some(self.slab.allocate(value).unwrap())
     }
 
+    #[inline]
     fn size_hint(&self) -> (usize, Option<usize>) {
         self.values.size_hint()
     }
@@ -451,6 +581,7 @@ where
     K: EntityIndex,
     I: ExactSizeIterator<Item = V>,
 {
+    #[inline]
     fn len(&self) -> usize {
         self.values.len()
     }

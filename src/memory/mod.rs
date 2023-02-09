@@ -4,10 +4,6 @@
 //! Inspired by the memory management in Cranelift IR.
 pub mod list;
 pub mod map;
-pub mod slab;
-
-pub use list::ListPool;
-pub use slab::Slab;
 
 pub trait EntityIndex: Copy + Eq + Default {
     fn new(index: usize) -> Self {
