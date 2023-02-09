@@ -127,15 +127,6 @@ where
         self.adjacency().node_edge_count(node)
     }
 
-    /// Returns the number of edges connected to the given node in the given direction.
-    ///
-    /// See [`Adjacency::node_edge_count_direction`].
-    #[inline(always)]
-    pub fn node_edge_count_direction(&self, node: NI, direction: Direction) -> usize {
-        self.adjacency()
-            .node_edge_count_direction(node, direction)
-    }
-
     /// Iterator over the edges that are connected to a node.
     ///
     /// See [`Adjacency::node_edges`].

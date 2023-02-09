@@ -176,14 +176,15 @@ where
     where
         Self: 'a;
 
-    /// Returns the number of edges connected to the given node.
-    fn node_edge_count(&self, node: NI) -> usize;
-
-    /// Returns the number of edges connected to the given node in the given direction.
-    fn node_edge_count_direction(&self, node: NI, direction: Direction) -> usize;
-
     /// Iterator over the edges that are connected to a node.
     fn node_edges(& self, n: NI, direction: Direction) -> Self::NodeEdges<'_>;
+
+    /// Returns the number of edges connected to the given node.
+    #[inline(always)]
+    fn node_edge_count(&self, node: NI) -> usize {
+        self.node_edges(node, Direction::Incoming).count()
+            + self.node_edges(node, Direction::Outgoing).count()
+    }
 
     /// Shorthand for [`Graph::node_edges`] in the incoming direction.
     #[inline]
