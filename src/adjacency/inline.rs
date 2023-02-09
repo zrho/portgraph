@@ -2,7 +2,7 @@
 use std::mem::take;
 use tinyvec::TinyVec;
 
-use crate::adjacency::{Adjacency, AdjacencyMut, AdjacencySlice};
+use super::{Adjacency, AdjacencyMut, AdjacencySlice};
 use crate::components::UnmanagedComponent;
 use crate::{ConnectError, Direction, Insert};
 use crate::memory::{map::SecondaryMap, EntityIndex};

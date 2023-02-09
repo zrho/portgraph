@@ -5,7 +5,7 @@ use std::fmt::Debug;
 use std::iter::FusedIterator;
 use std::mem::{replace, take};
 
-use crate::adjacency::{Adjacency, AdjacencyMut};
+use super::{Adjacency, AdjacencyMut};
 use crate::components::UnmanagedComponent;
 use crate::memory::map::SecondaryMap;
 use crate::memory::EntityIndex;

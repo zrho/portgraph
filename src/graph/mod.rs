@@ -5,9 +5,5 @@
 //! dangling edges which are not connected to a node on one or both sides.
 
 pub mod componentgraph;
-pub mod inline;
-pub mod linked;
 
 pub use componentgraph::PortGraph;
-pub use inline::InlineGraph;
-pub use linked::LinkedGraph;

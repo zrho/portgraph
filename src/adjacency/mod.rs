@@ -1,4 +1,10 @@
 
+pub mod inline;
+pub mod linked;
+
+pub use inline::InlineGraph;
+pub use linked::LinkedGraph;
+
 use crate::{NodeIndex, EdgeIndex, ConnectError, Direction, Insert};
 use crate::memory::EntityIndex;
 
