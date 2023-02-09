@@ -2,11 +2,10 @@
 use std::mem::take;
 use tinyvec::TinyVec;
 
-use super::{ConnectError, Graph, GraphMut, GraphSecondary, GraphSlice};
-use crate::{
-    memory::{map::SecondaryMap, EntityIndex},
-    Direction, Insert,
-};
+use crate::adjacency::{Adjacency, AdjacencyMut, AdjacencySlice};
+use crate::components::UnmanagedComponent;
+use crate::{ConnectError, Direction, Insert};
+use crate::memory::{map::SecondaryMap, EntityIndex};
 
 // TODO Implement more of the essential functions, like `merge_edges`
 
@@ -245,39 +244,42 @@ where
     }
 }
 
-impl<NI, EI, const NP: usize> Graph for InlineGraph<NI, EI, NP>
+impl<NI, EI, const NP: usize> Adjacency<NI, EI> for InlineGraph<NI, EI, NP>
 where
     [EI; NP]: tinyvec::Array<Item = EI>,
     NI: EntityIndex,
     EI: EntityIndex,
 {
-    type Node = NI;
-    type Edge = EI;
-
     // TODO: Wrap this up
     type NodeEdges<'a> = std::iter::Copied<std::slice::Iter<'a, EI>> where Self: 'a;
 
+    type Neighbours<'a> = std::iter::Empty<NI> where Self: 'a;
+
     #[inline]
-    fn node_edges(&self, node: Self::Node, dir: Direction) -> Self::NodeEdges<'_> {
+    fn node_edges(&self, node: NI, dir: Direction) -> Self::NodeEdges<'_> {
         self.node_edges_slice(node, dir).iter().copied()
     }
 
     #[inline]
-    fn edge_endpoint(&self, edge: Self::Edge, dir: Direction) -> Option<(Self::Node, usize)> {
+    fn edge_endpoint(&self, edge: EI, dir: Direction) -> Option<(NI, usize)> {
         let edge_data = self.edges.get(edge)?;
         let node = edge_data.nodes[dir.index()]?;
         let port = edge_data.ports[dir.index()];
         Some((node, port as usize))
     }
+
+    fn neighbours(& self, n: NI, direction: Direction) -> Self::Neighbours<'_> {
+        todo!()
+    }
 }
 
-impl<NI, EI, const NP: usize> GraphSlice for InlineGraph<NI, EI, NP>
+impl<NI, EI, const NP: usize> AdjacencySlice<NI, EI> for InlineGraph<NI, EI, NP>
 where
     [EI; NP]: tinyvec::Array<Item = EI>,
     NI: EntityIndex,
     EI: EntityIndex,
 {
-    fn node_edges_slice(&self, node: Self::Node, dir: Direction) -> &[Self::Edge] {
+    fn node_edges_slice(&self, node: NI, dir: Direction) -> &[EI] {
         self.nodes
             .get(node)
             .map(move |node_data| node_data.edge_slice(dir))
@@ -285,7 +287,7 @@ where
     }
 }
 
-impl<NI, EI, const NP: usize> GraphMut for InlineGraph<NI, EI, NP>
+impl<NI, EI, const NP: usize> AdjacencyMut<NI, EI> for InlineGraph<NI, EI, NP>
 where
     [EI; NP]: tinyvec::Array<Item = EI>,
     NI: EntityIndex,
@@ -293,13 +295,13 @@ where
 {
     fn connect_many<I>(
         &mut self,
-        node: Self::Node,
+        node: NI,
         edges: I,
-        position: Insert<Self::Edge>,
+        position: Insert<EI>,
         direction: Direction,
     ) -> Result<(), ConnectError>
     where
-        I: IntoIterator<Item = Self::Edge>,
+        I: IntoIterator<Item = EI>,
     {
         let node_data = &mut self.nodes[node];
 
@@ -347,7 +349,7 @@ where
         Ok(())
     }
 
-    fn disconnect(&mut self, edge: Self::Edge, direction: Direction) -> Option<Self::Node> {
+    fn disconnect(&mut self, edge: EI, direction: Direction) -> Option<NI> {
         let Some(edge_data) = self.edges.get_mut(edge) else {
             return None;
         };
@@ -371,9 +373,9 @@ where
     #[inline(always)]
     fn connect(
         &mut self,
-        node: Self::Node,
-        edge: Self::Edge,
-        position: Insert<Self::Edge>,
+        node: NI,
+        edge: EI,
+        position: Insert<EI>,
         direction: Direction,
     ) -> Result<(), ConnectError> {
         use Insert::*;
@@ -386,7 +388,7 @@ where
         }
     }
 
-    fn clear_node(&mut self, node: Self::Node) {
+    fn clear_node(&mut self, node: NI) {
         let Some(node_data) = self.nodes.take(node) else {
             return;
         };
@@ -398,20 +400,20 @@ where
         }
     }
 
-    fn clear_edge(&mut self, edge: Self::Edge) {
+    fn clear_edge(&mut self, edge: EI) {
         for direction in Direction::ALL {
             self.disconnect(edge, direction);
         }
     }
 }
 
-impl<NI, EI, const NP: usize> GraphSecondary for InlineGraph<NI, EI, NP>
+impl<NI, EI, const NP: usize> UnmanagedComponent<NI, EI> for InlineGraph<NI, EI, NP>
 where
     [EI; NP]: tinyvec::Array<Item = EI>,
     NI: EntityIndex,
     EI: EntityIndex,
 {
-    fn rekey_node(&mut self, old: Self::Node, new: Self::Node) {
+    fn rekey_node(&mut self, old: NI, new: NI) {
         if let Some(node_data) = self.nodes.rekey(old, new) {
             for (_, direction, edge) in node_data.edges_with_ports() {
                 self.edges[edge].nodes[direction.index()] = Some(new);
@@ -419,7 +421,7 @@ where
         }
     }
 
-    fn rekey_edge(&mut self, old: Self::Edge, new: Self::Edge) {
+    fn rekey_edge(&mut self, old: EI, new: EI) {
         if let Some(edge_data) = self.edges.rekey(old, new) {
             for direction in Direction::ALL {
                 if let Some(node) = edge_data.nodes[direction.index()] {
@@ -429,5 +431,41 @@ where
                 }
             }
         }
+    }
+
+    fn new() -> Self {
+        todo!()
+    }
+
+    fn with_capacity(nodes: usize, edges: usize) -> Self {
+        todo!()
+    }
+
+    fn register_node(&mut self, index: NI) {
+        todo!()
+    }
+
+    fn register_edge(&mut self, index: EI) {
+        todo!()
+    }
+
+    fn unregister_node(&mut self, index: NI) {
+        todo!()
+    }
+
+    fn unregister_edge(&mut self, index: EI) {
+        todo!()
+    }
+
+    fn shrink_to(&mut self, nodes: NI, edges: EI) {
+        todo!()
+    }
+
+    fn insert_graph(&mut self, other: &Self, node_map: impl Fn(NI) -> NI, edge_map: impl Fn(EI) -> EI) {
+        todo!()
+    }
+
+    fn reindex(&mut self, node_map: impl Fn(NI) -> NI, edge_map: impl Fn(EI) -> EI) {
+        todo!()
     }
 }

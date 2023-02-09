@@ -1,18 +1,22 @@
+use std::hash::Hash;
 use std::marker::PhantomData;
 use thiserror::Error;
 
-use super::components::{
-    Allocator, Adjacency, DefaultAllocator, DefaultAdjacency, DefaultWeights, EdgeIndex,
-    EdgeMap, NodeIndex, NodeMap, Weights, AdjacencyMut,
-};
-use super::{ConnectError, Direction};
-use crate::Insert;
+use crate::adjacency::{Adjacency, AdjacencyMut};
+use crate::components::{Allocator, UnmanagedComponent, Weights};
 use crate::memory::EntityIndex;
+use crate::Insert;
+use crate::{ConnectError, Direction};
+use crate::{EdgeIndex, EdgeMap, NodeIndex, NodeMap};
+
+type DefaultAllocator<NI, EI> = PhantomData<(NI, EI)>; // TODO: define a good default
+type DefaultAdjacency<NI, EI> = PhantomData<(NI, EI)>; // TODO: define a good default
+type DefaultWeights<N, E, P, NI, EI> = PhantomData<(N, E, P, NI, EI)>; // TODO: define a good default
 
 pub struct PortGraph<
     N,
-    E,
-    P,
+    E = (),
+    P = (),
     NI = NodeIndex,
     EI = EdgeIndex,
     Ac = DefaultAllocator<NI, EI>,
@@ -163,7 +167,8 @@ where
         position: Insert<EI>,
         direction: Direction,
     ) -> Result<(), ConnectError> {
-        self.adjacency_mut().connect(node, edge, position, direction)
+        self.adjacency_mut()
+            .connect(node, edge, position, direction)
     }
 
     /// Disconnect an edge endpoint from a node.
@@ -173,7 +178,7 @@ where
     ///
     /// See [`Adjacency::disconnect`].
     #[inline(always)]
-    pub fn disconnect(&mut self, edge_index: EI, direction: Direction) {
+    pub fn disconnect(&mut self, edge_index: EI, direction: Direction) -> Option<NI> {
         self.adjacency_mut().disconnect(edge_index, direction)
     }
 }
@@ -270,11 +275,14 @@ where
 
 impl<N, E, P, NI, EI, Ac, Adj, Ws> PortGraph<N, E, P, NI, EI, Ac, Adj, Ws>
 where
-    NI: EntityIndex,
-    EI: EntityIndex,
+    NI: EntityIndex + Hash, // TODO: Remove the NodeMaps and drop the Hash requirement.
+    EI: EntityIndex + Hash, // TODO: Remove the EdgeMaps and drop the Hash requirement.
     Ac: Allocator<NI, EI>,
-    Adj: AdjacencyMut<NI, EI>,
-    Ws: Weights<N, E, P, NI, EI>,
+    Adj: AdjacencyMut<NI, EI> + UnmanagedComponent<NI, EI>,
+    Ws: Weights<N, E, P, NI, EI> + UnmanagedComponent<NI, EI>,
+    N: Default, // TODO: Not ideal, but needed while removing the weights.
+    E: Default,
+    P: Default,
 {
     /// Create a new graph with no nodes or edges.
     pub fn new() -> Self {
@@ -300,7 +308,8 @@ where
     pub fn add_node(&mut self, weight: N) -> NI {
         let index = self.allocator_mut().new_node();
         self.adjacency_mut().register_node(index);
-        self.weights_mut().register_node(index, weight);
+        self.weights_mut().register_node(index);
+        *self.weights_mut().node_weight_mut(index).unwrap() = weight;
         index
     }
 
@@ -340,7 +349,8 @@ where
     pub fn add_edge(&mut self, weight: E) -> EI {
         let index = self.allocator_mut().new_edge();
         self.adjacency_mut().register_edge(index);
-        self.weights_mut().register_edge(index, weight);
+        self.weights_mut().register_edge(index);
+        *self.weights_mut().edge_weight_mut(index).unwrap() = weight;
         index
     }
 
@@ -367,7 +377,14 @@ where
     pub fn remove_node(&mut self, index: NI) -> Option<N> {
         self.allocator_mut().remove_node(index);
         self.adjacency_mut().unregister_node(index);
-        self.weights_mut().unregister_node(index)
+        let weight = self.weights_mut().node_weight_mut(index);
+        if let Some(weight) = weight {
+            let weight = std::mem::replace(weight, N::default());
+            self.weights_mut().unregister_node(index);
+            Some(weight)
+        } else {
+            None
+        }
     }
 
     /// Remove an edge from the graph.
@@ -395,7 +412,14 @@ where
     pub fn remove_edge(&mut self, index: EI) -> Option<E> {
         self.allocator_mut().remove_edge(index);
         self.adjacency_mut().unregister_edge(index);
-        self.weights_mut().unregister_edge(index)
+        let weight = self.weights_mut().edge_weight_mut(index);
+        if let Some(weight) = weight {
+            let weight = std::mem::replace(weight, E::default());
+            self.weights_mut().unregister_edge(index);
+            Some(weight)
+        } else {
+            None
+        }
     }
 
     /// Insert a graph into this graph.
@@ -407,10 +431,16 @@ where
     /// subgraph with the rest of the graph
     pub fn insert_graph(&mut self, other: &Self) -> (NodeMap<NI>, EdgeMap<EI>) {
         let (node_map, edge_map) = self.allocator_mut().insert_graph(other.allocator());
-        self.adjacency_mut()
-            .insert_graph(other.adjacency(), &node_map, &edge_map);
-        self.weights_mut()
-            .insert_graph(other.weights(), &node_map, &edge_map);
+        self.adjacency_mut().insert_graph(
+            other.adjacency(),
+            |i| *node_map.get(&i).unwrap(),
+            |i| *edge_map.get(&i).unwrap(),
+        );
+        self.weights_mut().insert_graph(
+            other.weights(),
+            |i| *node_map.get(&i).unwrap(),
+            |i| *edge_map.get(&i).unwrap(),
+        );
         (node_map, edge_map)
     }
 
@@ -447,8 +477,14 @@ where
     /// ```
     pub fn compact(&mut self) -> (NodeMap<NI>, EdgeMap<EI>) {
         let (node_map, edge_map) = self.allocator_mut().compact();
-        self.adjacency_mut().reindex(&node_map, &edge_map);
-        self.weights_mut().reindex(&node_map, &edge_map);
+        self.adjacency_mut().reindex(
+            |i| *node_map.get(&i).unwrap(),
+            |i| *edge_map.get(&i).unwrap(),
+        );
+        self.weights_mut().reindex(
+            |i| *node_map.get(&i).unwrap(),
+            |i| *edge_map.get(&i).unwrap(),
+        );
         (node_map, edge_map)
     }
 
@@ -503,7 +539,12 @@ where
         }
 
         if let Some((from_node, from_port)) = self.edge_endpoint(from, Direction::Outgoing) {
-            self.connect(from_node, into, Insert::Index(from_port), Direction::Outgoing);
+            self.connect(
+                from_node,
+                into,
+                Insert::Index(from_port),
+                Direction::Outgoing,
+            );
         }
 
         Ok(self.remove_edge(from).unwrap())
@@ -517,4 +558,16 @@ pub enum MergeEdgesError {
     UnknownEdge,
     #[error("edge is already connected")]
     AlreadyConnected,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn empty() {
+        //let mut graph: PortGraph<usize, usize, usize> = PortGraph::new();
+        //assert_eq!(graph.node_count(), 0);
+        //assert_eq!(graph.edge_count(), 0);
+    }
 }

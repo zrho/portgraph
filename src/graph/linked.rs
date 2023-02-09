@@ -5,11 +5,11 @@ use std::fmt::Debug;
 use std::iter::FusedIterator;
 use std::mem::{replace, take};
 
+use crate::adjacency::{Adjacency, AdjacencyMut};
+use crate::components::UnmanagedComponent;
 use crate::memory::map::SecondaryMap;
 use crate::memory::EntityIndex;
-use crate::{Direction, Insert};
-
-use super::{ConnectError, Graph, GraphMut, GraphSecondary};
+use crate::{ConnectError, Direction, Insert};
 
 /// Secondary graph data structure with doubly linked adjacency lists.
 #[derive(Clone)]
@@ -178,19 +178,17 @@ where
     }
 }
 
-impl<NI, EI> Graph for LinkedGraph<NI, EI>
+impl<NI, EI> Adjacency<NI, EI> for LinkedGraph<NI, EI>
 where
     NI: EntityIndex,
     EI: EntityIndex,
 {
-    type Node = NI;
-    type Edge = EI;
-
     type NodeEdges<'a> = NodeEdges<'a, NI, EI>
     where
         Self: 'a;
+    type Neighbours<'a> = std::iter::Empty<NI> where Self: 'a;
 
-    fn node_edges(&self, node: Self::Node, dir: Direction) -> Self::NodeEdges<'_> {
+    fn node_edges(&self, node: NI, dir: Direction) -> Self::NodeEdges<'_> {
         let node_data = &self.nodes[node];
         NodeEdges {
             graph: self,
@@ -201,28 +199,32 @@ where
         }
     }
 
-    fn edge_node(&self, edge: Self::Edge, dir: Direction) -> Option<Self::Node> {
+    fn edge_node(&self, edge: EI, dir: Direction) -> Option<NI> {
         self.edges.get(edge)?.nodes[dir.index()]
     }
 
-    fn edge_endpoint(&self, edge: Self::Edge, dir: Direction) -> Option<(Self::Node, usize)> {
+    fn edge_endpoint(&self, edge: EI, dir: Direction) -> Option<(NI, usize)> {
         let edge_data = self.edges.get(edge)?;
         let node = edge_data.nodes[dir.index()]?;
         let port = self.node_edges(node, dir).position(|e| e == edge)?;
         Some((node, port))
     }
+
+    fn neighbours(& self, n: NI, direction: Direction) -> Self::Neighbours<'_> {
+        todo!()
+    }
 }
 
-impl<NI, EI> GraphMut for LinkedGraph<NI, EI>
+impl<NI, EI> AdjacencyMut<NI, EI> for LinkedGraph<NI, EI>
 where
     NI: EntityIndex,
     EI: EntityIndex,
 {
     fn connect(
         &mut self,
-        node: Self::Node,
-        edge: Self::Edge,
-        position: Insert<Self::Edge>,
+        node: NI,
+        edge: EI,
+        position: Insert<EI>,
         direction: Direction,
     ) -> Result<(), ConnectError> {
         // TODO: For the relative connection, check that the node matches
@@ -237,18 +239,18 @@ where
 
     fn connect_many<I>(
         &mut self,
-        node: Self::Node,
+        node: NI,
         edges: I,
-        position: Insert<Self::Edge>,
+        position: Insert<EI>,
         direction: Direction,
     ) -> Result<(), ConnectError>
     where
-        I: IntoIterator<Item = Self::Edge>,
+        I: IntoIterator<Item = EI>,
     {
         todo!()
     }
 
-    fn disconnect(&mut self, edge: Self::Edge, direction: Direction) -> Option<Self::Node> {
+    fn disconnect(&mut self, edge: EI, direction: Direction) -> Option<NI> {
         let Some(edge_data) = self.edges.get_mut(edge) else {
             return None;
         };
@@ -275,7 +277,7 @@ where
         node
     }
 
-    fn clear_node(&mut self, node: Self::Node) {
+    fn clear_node(&mut self, node: NI) {
         let Some(node_data) = self.nodes.take(node) else {
             return;
         };
@@ -292,23 +294,59 @@ where
         }
     }
 
-    fn clear_edge(&mut self, edge: Self::Edge) {
+    fn clear_edge(&mut self, edge: EI) {
         for direction in Direction::ALL {
             self.disconnect(edge, direction);
         }
     }
 }
 
-impl<NI, EI> GraphSecondary for LinkedGraph<NI, EI>
+impl<NI, EI> UnmanagedComponent<NI, EI> for LinkedGraph<NI, EI>
 where
     NI: EntityIndex,
     EI: EntityIndex,
 {
-    fn rekey_node(&mut self, old: Self::Node, new: Self::Node) {
+    fn rekey_node(&mut self, old: NI, new: NI) {
         todo!()
     }
 
-    fn rekey_edge(&mut self, old: Self::Edge, new: Self::Edge) {
+    fn rekey_edge(&mut self, old: EI, new: EI) {
+        todo!()
+    }
+
+    fn new() -> Self {
+        todo!()
+    }
+
+    fn with_capacity(nodes: usize, edges: usize) -> Self {
+        todo!()
+    }
+
+    fn register_node(&mut self, index: NI) {
+        todo!()
+    }
+
+    fn register_edge(&mut self, index: EI) {
+        todo!()
+    }
+
+    fn unregister_node(&mut self, index: NI) {
+        todo!()
+    }
+
+    fn unregister_edge(&mut self, index: EI) {
+        todo!()
+    }
+
+    fn shrink_to(&mut self, nodes: NI, edges: EI) {
+        todo!()
+    }
+
+    fn insert_graph(&mut self, other: &Self, node_map: impl Fn(NI) -> NI, edge_map: impl Fn(EI) -> EI) {
+        todo!()
+    }
+
+    fn reindex(&mut self, node_map: impl Fn(NI) -> NI, edge_map: impl Fn(EI) -> EI) {
         todo!()
     }
 }

@@ -4,6 +4,12 @@
 // pub mod substitute;
 // pub mod toposort;
 
+use std::collections::{BTreeMap, HashMap};
+
+use thiserror::Error;
+
+pub mod adjacency;
+pub mod components;
 pub mod forest;
 pub mod graph;
 pub mod index;
@@ -54,6 +60,24 @@ pub enum Insert<T> {
     /// Insert after a given number of elements.
     Index(usize),
 }
+
+make_entity! {
+    pub struct NodeIndex(u32);
+    pub struct EdgeIndex(u32);
+}
+
+#[derive(Debug, Clone, Error)]
+pub enum ConnectError {
+    #[error("the edge was already connected to another node")]
+    EdgeAlreadyConnected,
+    #[error("can not insert an edge relative to a disconnected one")]
+    RelativeToDisconnected,
+    #[error("edges must be connected to the same node")]
+    NodeMismatch,
+}
+
+type NodeMap<NI> = HashMap<NI, NI>; // TODO: use a generic interface
+type EdgeMap<EI> = HashMap<EI, EI>; // TODO: use a generic interface
 
 // #[cfg(feature = "pyo3")]
 // pub mod py_graph;
