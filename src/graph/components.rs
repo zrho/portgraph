@@ -8,9 +8,7 @@ use super::{
 
 make_entity! {
     pub struct NodeIndex(u32);
-    pub struct RegionIndex(u32);
     pub struct EdgeIndex(u32);
-    pub struct PortIndex(u32);
 }
 
 /// Map of updated node indices after a graph operation.
@@ -24,12 +22,12 @@ pub struct DefaultAllocator<NI, EI> {
     edges: HashSet<EI>,
 }
 
-pub struct DefaultAdjacency<NI, EI, PI> {
-    nodes: Vec<Vec<(EI, Direction, PI)>>,
+pub struct DefaultAdjacency<NI, EI> {
+    nodes: Vec<Vec<(EI, Direction)>>,
     edges: Vec<(NI, NI)>,
 }
 
-pub struct DefaultWeights<N, E, P, NI, EI, PI>(PhantomData<(N, E, P, NI, EI, PI)>);
+pub struct DefaultWeights<N, E, P, NI, EI>(PhantomData<(N, E, P, NI, EI)>);
 
 /// Core trait defining the capability of allocating new nodes and edges.
 /// All graph implementations must implement this trait.
@@ -161,11 +159,10 @@ where
 }
 
 /// Trait for graphs that encode edges connecting nodes.
-pub trait Adjacency<NI = NodeIndex, EI = EdgeIndex, PI = PortIndex>
+pub trait Adjacency<NI = NodeIndex, EI = EdgeIndex>
 where
     NI: EntityIndex,
     EI: EntityIndex,
-    PI: EntityIndex,
 {
     /// Iterator over the indices of the nodes connected to the given node.
     type Neighbours<'a>: Iterator<Item = NI>
@@ -204,17 +201,17 @@ where
     /// The endpoint of an edge in a given direction.
     ///
     /// Returns `None` if the edge does not exist or has no endpoint in that direction.
-    fn edge_endpoint(&self, e: EI, direction: Direction) -> Option<(NI, PI)>;
+    fn edge_endpoint(&self, e: EI, direction: Direction) -> Option<(NI, usize)>;
 
     /// Shorthand for [`Graph::edge_endpoint`] in the outgoing direction.
     #[inline]
-    fn source(&self, edge: EI) -> Option<(NI, PI)> {
+    fn source(&self, edge: EI) -> Option<(NI, usize)> {
         self.edge_endpoint(edge, Direction::Outgoing)
     }
 
     /// Shorthand for [`Graph::edge_endpoint`] in the incoming direction.
     #[inline]
-    fn target(&self, edge: EI) -> Option<(NI, PI)> {
+    fn target(&self, edge: EI) -> Option<(NI, usize)> {
         self.edge_endpoint(edge, Direction::Incoming)
     }
 
@@ -242,29 +239,28 @@ where
     ///
     /// `None` if the edge does not exist or is not connected in the direction.
     #[inline]
-    fn edge_position(&self, edge: EI, dir: Direction) -> Option<PI> {
+    fn edge_position(&self, edge: EI, dir: Direction) -> Option<usize> {
         self.edge_endpoint(edge, dir).map(|(_, position)| position)
     }
 
     /// Shorthand for [`Graph::edge_position`] in the outgoing direction.
     #[inline]
-    fn source_position(&self, edge: EI) -> Option<PI> {
+    fn source_position(&self, edge: EI) -> Option<usize> {
         self.edge_position(edge, Direction::Outgoing)
     }
 
     /// Shorthand for [`Graph::edge_position`] in the incoming direction.
     #[inline]
-    fn target_position(&self, edge: EI) -> Option<PI> {
+    fn target_position(&self, edge: EI) -> Option<usize> {
         self.edge_position(edge, Direction::Incoming)
     }
 }
 
 /// Trait for graphs that encode edges connecting nodes.
-pub trait AdjacencyMut<NI = NodeIndex, EI = EdgeIndex, PI = PortIndex> : Adjacency<NI, EI, PI>
+pub trait AdjacencyMut<NI = NodeIndex, EI = EdgeIndex> : Adjacency<NI, EI>
 where
     NI: EntityIndex,
     EI: EntityIndex,
-    PI: EntityIndex,
 {
     /// Create a new component with no nodes or edges.
     fn new() -> Self;
@@ -369,11 +365,10 @@ where
 }
 
 /// Trait for graphs that encode edges connecting nodes.
-pub trait Weights<N, E, P, NI = NodeIndex, EI = EdgeIndex, PI = PortIndex>
+pub trait Weights<N, E, P, NI = NodeIndex, EI = EdgeIndex>
 where
     NI: EntityIndex,
     EI: EntityIndex,
-    PI: EntityIndex,
 {
     type NodeWeights<'a>: Iterator<Item = (NI, &'a N)>
     where
@@ -383,7 +378,7 @@ where
     where
         Self: 'a,
         E: 'a;
-    type PortWeights<'a>: Iterator<Item = (PI, &'a P)>
+    type PortWeights<'a>: Iterator<Item = (usize, &'a P)>
     where
         Self: 'a,
         P: 'a;
@@ -436,11 +431,11 @@ where
     fn edge_weights<'a>(&'a self) -> Self::EdgeWeights<'a>;
 
     /// A reference to the weight of the port with a given index.
-    fn port_weight(&self, e: PI) -> Option<&P>;
+    fn port_weight(&self, p: usize, dir: Direction) -> Option<&P>;
 
     /// A mutable reference to the weight of the port with a given index.
-    fn port_weight_mut(&mut self, e: PI) -> Option<&mut P>;
+    fn port_weight_mut(&mut self, p: usize, dir: Direction) -> Option<&mut P>;
 
     /// Iterator over the port weights of the graph.
-    fn port_weights<'a>(&'a self) -> Self::PortWeights<'a>;
+    fn port_weights<'a>(&'a self, dir: Direction) -> Self::PortWeights<'a>;
 }

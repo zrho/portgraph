@@ -3,7 +3,7 @@ use thiserror::Error;
 
 use super::components::{
     Allocator, Adjacency, DefaultAllocator, DefaultAdjacency, DefaultWeights, EdgeIndex,
-    EdgeMap, NodeIndex, NodeMap, PortIndex, Weights, AdjacencyMut,
+    EdgeMap, NodeIndex, NodeMap, Weights, AdjacencyMut,
 };
 use super::{ConnectError, Direction};
 use crate::Insert;
@@ -15,22 +15,20 @@ pub struct PortGraph<
     P,
     NI = NodeIndex,
     EI = EdgeIndex,
-    PI = PortIndex,
     Ac = DefaultAllocator<NI, EI>,
-    Adj = DefaultAdjacency<NI, EI, PI>,
-    Ws = DefaultWeights<N, E, P, NI, EI, PI>,
+    Adj = DefaultAdjacency<NI, EI>,
+    Ws = DefaultWeights<N, E, P, NI, EI>,
 > {
     allocator: Ac,
     adjacency: Adj,
     weights: Ws,
-    phantom_data: PhantomData<(N, E, P, NI, EI, PI)>,
+    phantom_data: PhantomData<(N, E, P, NI, EI)>,
 }
 
-impl<N, E, P, NI, EI, PI, Ac, Adj, Ws> PortGraph<N, E, P, NI, EI, PI, Ac, Adj, Ws>
+impl<N, E, P, NI, EI, Ac, Adj, Ws> PortGraph<N, E, P, NI, EI, Ac, Adj, Ws>
 where
     NI: EntityIndex,
     EI: EntityIndex,
-    PI: EntityIndex,
     Ac: Allocator<NI, EI>,
 {
     /// Returns a reference to the allocator.
@@ -101,12 +99,11 @@ where
     }
 }
 
-impl<N, E, P, NI, EI, PI, Ac, Adj, Ws> PortGraph<N, E, P, NI, EI, PI, Ac, Adj, Ws>
+impl<N, E, P, NI, EI, Ac, Adj, Ws> PortGraph<N, E, P, NI, EI, Ac, Adj, Ws>
 where
     NI: EntityIndex,
     EI: EntityIndex,
-    PI: EntityIndex,
-    Adj: AdjacencyMut<NI, EI, PI>,
+    Adj: AdjacencyMut<NI, EI>,
 {
     /// Returns a reference to the adjacency component.
     #[inline(always)]
@@ -149,7 +146,7 @@ where
     ///
     /// See [`Adjacency::edge_endpoint`].
     #[inline(always)]
-    pub fn edge_endpoint(&self, e: EI, direction: Direction) -> Option<(NI, PI)> {
+    pub fn edge_endpoint(&self, e: EI, direction: Direction) -> Option<(NI, usize)> {
         self.adjacency().edge_endpoint(e, direction)
     }
 
@@ -181,12 +178,11 @@ where
     }
 }
 
-impl<N, E, P, NI, EI, PI, Ac, Adj, Ws> PortGraph<N, E, P, NI, EI, PI, Ac, Adj, Ws>
+impl<N, E, P, NI, EI, Ac, Adj, Ws> PortGraph<N, E, P, NI, EI, Ac, Adj, Ws>
 where
     NI: EntityIndex,
     EI: EntityIndex,
-    PI: EntityIndex,
-    Ws: Weights<N, E, P, NI, EI, PI>,
+    Ws: Weights<N, E, P, NI, EI>,
 {
     /// Returns a reference to the weights component.
     #[inline(always)]
@@ -251,35 +247,34 @@ where
     ///
     /// See [`Weights::port_weight`].
     #[inline(always)]
-    pub fn port_weight(&self, e: PI) -> Option<&P> {
-        self.weights().port_weight(e.clone())
+    pub fn port_weight(&self, e: usize, dir: Direction) -> Option<&P> {
+        self.weights().port_weight(e, dir)
     }
 
     /// A mutable reference to the weight of the port with a given index.
     ///
     /// See [`Weights::port_weight_mut`].
     #[inline(always)]
-    pub fn port_weight_mut(&mut self, e: PI) -> Option<&mut P> {
-        self.weights_mut().port_weight_mut(e)
+    pub fn port_weight_mut(&mut self, e: usize, dir: Direction) -> Option<&mut P> {
+        self.weights_mut().port_weight_mut(e, dir)
     }
 
     /// Iterator over the port weights of the graph.
     ///
     /// See [`Weights::port_weights`].
     #[inline(always)]
-    pub fn port_weights(&self) -> Ws::PortWeights<'_> {
-        self.weights().port_weights()
+    pub fn port_weights(&self, dir: Direction) -> Ws::PortWeights<'_> {
+        self.weights().port_weights(dir)
     }
 }
 
-impl<N, E, P, NI, EI, PI, Ac, Adj, Ws> PortGraph<N, E, P, NI, EI, PI, Ac, Adj, Ws>
+impl<N, E, P, NI, EI, Ac, Adj, Ws> PortGraph<N, E, P, NI, EI, Ac, Adj, Ws>
 where
     NI: EntityIndex,
     EI: EntityIndex,
-    PI: EntityIndex,
     Ac: Allocator<NI, EI>,
-    Adj: AdjacencyMut<NI, EI, PI>,
-    Ws: Weights<N, E, P, NI, EI, PI>,
+    Adj: AdjacencyMut<NI, EI>,
+    Ws: Weights<N, E, P, NI, EI>,
 {
     /// Create a new graph with no nodes or edges.
     pub fn new() -> Self {
@@ -508,7 +503,7 @@ where
         }
 
         if let Some((from_node, from_port)) = self.edge_endpoint(from, Direction::Outgoing) {
-            self.connect(from_node, into, Insert::Index(from_port.index()), Direction::Outgoing);
+            self.connect(from_node, into, Insert::Index(from_port), Direction::Outgoing);
         }
 
         Ok(self.remove_edge(from).unwrap())
