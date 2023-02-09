@@ -2,16 +2,18 @@ use criterion::{
     black_box, criterion_group, criterion_main, AxisScale, BenchmarkId, Criterion,
     PlotConfiguration,
 };
-use portgraph::graph::{Direction, Graph};
+use portgraph::{Direction, NodeIndex, EdgeIndex};
+use portgraph::adjacency::{InlineGraph, Adjacency};
+use portgraph::graph::PortGraph;
 
-fn make_line_graph(size: usize) -> Graph<usize, (usize, usize, usize)> {
-    let mut graph = Graph::with_capacity(size, size * 2, 0);
+fn make_line_graph(size: usize) -> PortGraph<usize, (usize, usize, usize)> {
+    let mut graph = PortGraph::with_capacity(size, size * 2);
     let edge0 = graph.add_edge((0, 0, 1));
     let edge1 = graph.add_edge((0, 0, 1));
     let mut prev_node = graph.add_node_with_edges(0, [], [edge0, edge1]).unwrap();
 
     for i in 1..size {
-        let mut node_edges = graph.node_edges(prev_node, Direction::Outgoing);
+        let mut node_edges: <InlineGraph<NodeIndex, EdgeIndex> as Adjacency<NodeIndex, EdgeIndex>>::NodeEdges<'_> = graph.node_edges(prev_node, Direction::Outgoing);
         let edge_in0 = node_edges.next().unwrap();
         let edge_in1 = node_edges.next().unwrap();
         drop(node_edges);
@@ -33,8 +35,8 @@ fn make_line_graph(size: usize) -> Graph<usize, (usize, usize, usize)> {
 /// v                    v
 /// o ---> o ---> o ---> o ---> o   ...
 ///
-fn make_two_track_dag(layers: usize) -> LinkedGraph<usize, usize> {
-    let mut graph = LinkedGraph::with_capacity(layers, layers + layers / 3, 0);
+fn make_two_track_dag(layers: usize) -> PortGraph<usize, usize, usize> {
+    let mut graph = PortGraph::with_capacity(layers, layers + layers / 3);
     if layers == 0 {
         return graph;
     } else if layers == 1 {
@@ -60,10 +62,10 @@ fn make_two_track_dag(layers: usize) -> LinkedGraph<usize, usize> {
         if layer % 3 == 0 {
             let edge = graph.add_edge(0);
             graph
-                .connect_last(node0, edge, Direction::Outgoing)
+                .connect(node0, edge, portgraph::Insert::Last, Direction::Outgoing)
                 .unwrap();
             graph
-                .connect_last(node1, edge, Direction::Incoming)
+                .connect(node1, edge, portgraph::Insert::Last, Direction::Incoming)
                 .unwrap();
         }
         prev_edges = new_edges;
@@ -79,7 +81,7 @@ fn make_two_track_dag(layers: usize) -> LinkedGraph<usize, usize> {
 }
 
 /// Remove one every five nodes from the graph.
-fn remove_every_five(graph: &mut LinkedGraph<usize, usize>) {
+fn remove_every_five(graph: &mut PortGraph<usize, usize, usize>) {
     let mut to_remove = Vec::new();
     for (i, v) in graph.node_indices().enumerate() {
         if i % 5 == 0 {
@@ -92,7 +94,7 @@ fn remove_every_five(graph: &mut LinkedGraph<usize, usize>) {
 }
 
 /// Remove nodes from the graph in an unordered way until it is empty.
-fn remove_all_unordered(graph: &mut LinkedGraph<usize, usize>) {
+fn remove_all_unordered(graph: &mut PortGraph<usize, usize, usize>) {
     while graph.node_count() > 5 {
         remove_every_five(graph);
     }
@@ -112,11 +114,6 @@ fn bench_make_portgraph(c: &mut Criterion) {
             &size,
             |b, size| b.iter(|| black_box(make_line_graph(*size))),
         );
-        // g.bench_with_input(
-        //     BenchmarkId::new("make_line_graph_test", size),
-        //     &size,
-        //     |b, size| b.iter(|| black_box(make_line_graph_test(*size))),
-        // );
     }
     g.finish();
 }

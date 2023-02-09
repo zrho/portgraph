@@ -4,15 +4,13 @@ use std::marker::PhantomData;
 use thiserror::Error;
 
 use crate::adjacency::{AdjacencyMut, InlineGraph};
-use crate::components::{Allocator, UnmanagedComponent, Weights};
+use crate::components::{Allocator, UnmanagedComponent, Weights, DefaultAllocator, DefaultWeights};
 use crate::memory::EntityIndex;
 use crate::Insert;
 use crate::{ConnectError, Direction};
 use crate::{EdgeIndex, NodeIndex};
 
-type DefaultAllocator<NI, EI> = PhantomData<(NI, EI)>; // TODO: define a good default
-type DefaultWeights<N, E, P, NI, EI> = PhantomData<(N, E, P, NI, EI)>; // TODO: define a good default
-
+#[derive(Debug, Clone, Default)]
 pub struct PortGraph<
     N,
     E = (),
@@ -160,7 +158,7 @@ where
     ///
     /// See [`Adjacency::connect_at`].
     #[inline(always)]
-    fn connect(
+    pub fn connect(
         &mut self,
         node: NI,
         edge: EI,
