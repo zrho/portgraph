@@ -6,6 +6,7 @@
 
 pub mod forest;
 pub mod graph;
+pub mod index;
 pub mod memory;
 
 #[cfg_attr(feature = "pyo3", pyclass)]
