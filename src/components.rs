@@ -402,6 +402,9 @@ where
     }
 
     fn node_weight_mut(&mut self, a: NI) -> Option<&mut N> {
+        if self.nodes.len() <= a.index() {
+            self.nodes.resize(a.index() + 1);
+        }
         self.nodes.get_mut(a)
     }
 
@@ -414,6 +417,9 @@ where
     }
 
     fn edge_weight_mut(&mut self, e: EI) -> Option<&mut E> {
+        if self.edges.len() <= e.index() {
+            self.edges.resize(e.index() + 1);
+        }
         self.edges.get_mut(e)
     }
 
@@ -461,15 +467,9 @@ where
     }
 
     fn register_node(&mut self, index: NI) {
-        if self.nodes.len() <= index.index() {
-            self.nodes.resize(index.index() + 1);
-        }
     }
 
     fn register_edge(&mut self, index: EI) {
-        if self.edges.len() <= index.index() {
-            self.edges.resize(index.index() + 1);
-        }
     }
 
     fn unregister_node(&mut self, _index: NI) {}
