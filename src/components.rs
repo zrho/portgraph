@@ -1,5 +1,8 @@
+use std::iter::Empty;
 use std::marker::PhantomData;
 
+use crate::index::{IndexPoolAlloc, IndexPoolIter, IndexPool, slab};
+use crate::index::slab::SlabIndexPool;
 use crate::memory::EntityIndex;
 
 use crate::{Direction, NodeIndex, EdgeIndex};
@@ -234,90 +237,119 @@ pub trait UnmanagedComponent<NI, EI>: Default {
 
 // TODO: Remove this stub definitions once we have a good default allocator and weights
 
-#[derive(Debug, Clone, Default)]
-pub struct DefaultAllocator<NI, EI> (PhantomData<(NI, EI)>); // TODO: define a good default
-#[derive(Debug, Clone, Default)]
-pub struct DefaultWeights<N, E, P, NI, EI> (PhantomData<(N, E, P, NI, EI)>); // TODO: define a good default
+#[derive(Debug, Clone)]
+pub struct DefaultAllocator<NI, EI> {
+    nodes: SlabIndexPool<NI, ()>,
+    edges: SlabIndexPool<EI, ()>,
+}
+
+impl<NI, EI> Default for DefaultAllocator<NI, EI>
+where
+    NI: EntityIndex,
+    EI: EntityIndex,
+{
+    fn default() -> Self {
+        Self {
+            nodes: SlabIndexPool::new(),
+            edges: SlabIndexPool::new(),
+        }
+    }
+}
 
 impl<NI, EI> Allocator<NI, EI> for DefaultAllocator<NI,EI>
 where NI: EntityIndex, EI: EntityIndex
 {
-    type NodeIndices<'a> = std::iter::Empty<NI>
+    type NodeIndices<'a> = slab::IndexIter<'a, NI, ()>
     where
         Self: 'a;
 
-    type EdgeIndices<'a> = std::iter::Empty<EI>
+    type EdgeIndices<'a> = slab::IndexIter<'a, EI, ()>
     where
         Self: 'a;
 
     fn new() -> Self {
-        todo!()
+        Default::default()
     }
 
     fn with_capacity(nodes: usize, edges: usize) -> Self {
-        todo!()
+        Self {
+            nodes: SlabIndexPool::with_capacity(nodes),
+            edges: SlabIndexPool::with_capacity(edges),
+        }
     }
 
     fn new_node(&mut self) -> NI {
-        todo!()
+        self.nodes.allocate(()).unwrap()
     }
 
     fn new_edge(&mut self) -> EI {
-        todo!()
+        self.edges.allocate(()).unwrap()
     }
 
     fn remove_node(&mut self, node: NI) {
-        todo!()
+        self.nodes.free(node);
     }
 
     fn remove_edge(&mut self, edge: EI) {
-        todo!()
+        self.edges.free(edge);
     }
 
     fn node_bound(&self) -> usize {
-        todo!()
+        self.nodes.capacity()
     }
 
     fn edge_bound(&self) -> usize {
-        todo!()
+        self.edges.capacity()
     }
 
-    fn insert_from(&mut self, other: &Self, rename_node: impl FnMut(NI, NI), rename_edge: impl FnMut(EI, EI)) {
-        todo!()
+    fn insert_from(&mut self, other: &Self, mut rename_node: impl FnMut(NI, NI), mut rename_edge: impl FnMut(EI, EI)) {
+        for (old, _) in other.nodes.iter() {
+            let new = self.new_node();
+            rename_node(old, new);
+        }
+        for (old, _) in other.edges.iter() {
+            let new = self.new_edge();
+            rename_edge(old, new);
+        }
     }
 
-    fn compact(&mut self, rename_node: impl FnMut(NI, NI), rename_edge: impl FnMut(EI, EI)) {
-        todo!()
+    fn compact(&mut self, mut rename_node: impl FnMut(NI, NI), mut rename_edge: impl FnMut(EI, EI)) {
+        self.nodes.compact(|_, old, new| rename_node(old, new));
+        self.edges.compact(|_, old, new| rename_edge(old, new));
     }
 
     fn shrink_to_fit(&mut self) {
-        todo!()
+        self.nodes.shrink_to_fit();
+        self.edges.shrink_to_fit();
     }
 
     fn node_count(&self) -> usize {
-        todo!()
+        self.nodes.len()
     }
 
     fn edge_count(&self) -> usize {
-        todo!()
+        self.edges.len()
     }
 
     fn has_node(&self, n: NI) -> bool {
-        todo!()
+        self.nodes.contains(n)
     }
 
     fn has_edge(&self, e: EI) -> bool {
-        todo!()
+        self.edges.contains(e)
     }
 
     fn node_indices<'a>(&'a self) -> Self::NodeIndices<'a> {
-        todo!()
+        self.nodes.indices()
     }
 
     fn edge_indices<'a>(&'a self) -> Self::EdgeIndices<'a> {
-        todo!()
+        self.edges.indices()
     }
 }
+
+#[derive(Debug, Clone, Default)]
+pub struct DefaultWeights<N, E, P, NI, EI> (PhantomData<(N, E, P, NI, EI)>); // TODO: define a good default
 
 impl<N,E,P, NI, EI> Weights<N,E,P,NI, EI> for DefaultWeights<N,E,P,NI,EI>
 where NI: EntityIndex, EI: EntityIndex
@@ -337,40 +369,40 @@ where NI: EntityIndex, EI: EntityIndex
         Self: 'a,
         P: 'a;
 
-    fn node_weight(&self, a: NI) -> Option<&N> {
-        todo!()
+    fn node_weight(&self, _a: NI) -> Option<&N> {
+        None
     }
 
-    fn node_weight_mut(&mut self, a: NI) -> Option<&mut N> {
-        todo!()
+    fn node_weight_mut(&mut self, _a: NI) -> Option<&mut N> {
+        None
     }
 
     fn node_weights<'a>(&'a self) -> Self::NodeWeights<'a> {
-        todo!()
+        Empty::default()
     }
 
-    fn edge_weight(&self, e: EI) -> Option<&E> {
-        todo!()
+    fn edge_weight(&self, _e: EI) -> Option<&E> {
+        None
     }
 
-    fn edge_weight_mut(&mut self, e: EI) -> Option<&mut E> {
-        todo!()
+    fn edge_weight_mut(&mut self, _e: EI) -> Option<&mut E> {
+        None
     }
 
     fn edge_weights<'a>(&'a self) -> Self::EdgeWeights<'a> {
-        todo!()
+        Empty::default()
     }
 
-    fn port_weight(&self, p: usize, dir: Direction) -> Option<&P> {
-        todo!()
+    fn port_weight(&self, _p: usize, _dir: Direction) -> Option<&P> {
+        None
     }
 
-    fn port_weight_mut(&mut self, p: usize, dir: Direction) -> Option<&mut P> {
-        todo!()
+    fn port_weight_mut(&mut self, _p: usize, _dir: Direction) -> Option<&mut P> {
+        None
     }
 
-    fn port_weights<'a>(&'a self, dir: Direction) -> Self::PortWeights<'a> {
-        todo!()
+    fn port_weights<'a>(&'a self, _dir: Direction) -> Self::PortWeights<'a> {
+        Empty::default()
     }
 }
 
@@ -378,42 +410,34 @@ impl<N,E,P, NI, EI> UnmanagedComponent<NI,EI> for DefaultWeights<N,E,P,NI, EI>
 where NI: EntityIndex, EI: EntityIndex, N: Default, E: Default, P:Default
 {
     fn new() -> Self {
-        todo!()
+        Default::default()
     }
 
-    fn with_capacity(nodes: usize, edges: usize) -> Self {
-        todo!()
+    fn with_capacity(_nodes: usize, _edges: usize) -> Self {
+        Default::default()
     }
 
-    fn register_node(&mut self, index: NI) {
-        todo!()
+    fn register_node(&mut self, _index: NI) {
     }
 
-    fn register_edge(&mut self, index: EI) {
-        todo!()
+    fn register_edge(&mut self, _index: EI) {
     }
 
-    fn unregister_node(&mut self, index: NI) {
-        todo!()
+    fn unregister_node(&mut self, _index: NI) {
     }
 
-    fn unregister_edge(&mut self, index: EI) {
-        todo!()
+    fn unregister_edge(&mut self, _index: EI) {
     }
 
-    fn shrink_to(&mut self, nodes: usize, edges: usize) {
-        todo!()
+    fn shrink_to(&mut self, _nodes: usize, _edges: usize) {
     }
 
-    fn insert_from(&mut self, other: &Self, node_map: impl FnMut(NI) -> NI, edge_map: impl FnMut(EI) -> EI) {
-        todo!()
+    fn insert_from(&mut self, _other: &Self, _node_map: impl FnMut(NI) -> NI, _edge_map: impl FnMut(EI) -> EI) {
     }
 
-    fn rekey_node(&mut self, old: NI, new: NI) {
-        todo!()
+    fn rekey_node(&mut self, _old: NI, _new: NI) {
     }
 
-    fn rekey_edge(&mut self, old: EI, new: EI) {
-        todo!()
+    fn rekey_edge(&mut self, _old: EI, _new: EI) {
     }
 }

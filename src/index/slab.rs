@@ -168,6 +168,10 @@ where
 
         self.free_next = self.data.len() as u32;
     }
+
+    fn capacity(&self) -> usize {
+        self.data.capacity()
+    }
 }
 
 impl<K, V> IndexPoolIter for SlabIndexPool<K, V>

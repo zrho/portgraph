@@ -307,7 +307,9 @@ where
         let index = self.allocator_mut().new_node();
         self.adjacency_mut().register_node(index);
         self.weights_mut().register_node(index);
-        *self.weights_mut().node_weight_mut(index).unwrap() = weight;
+        if let Some(w) = self.weights_mut().node_weight_mut(index) {
+            *w = weight;
+        }
         index
     }
 
@@ -348,7 +350,9 @@ where
         let index = self.allocator_mut().new_edge();
         self.adjacency_mut().register_edge(index);
         self.weights_mut().register_edge(index);
-        *self.weights_mut().edge_weight_mut(index).unwrap() = weight;
+        if let Some(w) = self.weights_mut().edge_weight_mut(index) {
+            *w = weight;
+        }
         index
     }
 

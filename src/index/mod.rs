@@ -91,6 +91,9 @@ pub trait IndexPoolAlloc: IndexPool {
     fn compact<F>(&mut self, rekey: F)
     where
         F: FnMut(&mut Self::Value, Self::Index, Self::Index);
+
+    /// Returns the capacity of the pool.
+    fn capacity(&self) -> usize;
 }
 
 /// [`IndexPool`] that allows to iterate over indices and values.
