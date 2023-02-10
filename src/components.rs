@@ -1,11 +1,12 @@
 use std::iter::Empty;
 use std::marker::PhantomData;
 
-use crate::index::{IndexPoolAlloc, IndexPoolIter, IndexPool, slab};
 use crate::index::slab::SlabIndexPool;
-use crate::memory::EntityIndex;
+use crate::index::{slab, IndexPool, IndexPoolAlloc, IndexPoolIter};
+use crate::memory::{self, EntityIndex};
 
-use crate::{Direction, NodeIndex, EdgeIndex};
+use crate::memory::map::SecondaryMap;
+use crate::{Direction, EdgeIndex, NodeIndex};
 
 /// Core trait defining the capability of allocating new nodes and edges.
 /// All graph implementations must implement this trait.
@@ -54,7 +55,12 @@ where
     ///
     /// Calls `rename_node` and `rename_edge` for each index in `other`, passing the new index as
     /// second argument.
-    fn insert_from(&mut self, other: &Self, rename_node: impl FnMut(NI, NI), rename_edge: impl FnMut(EI, EI));
+    fn insert_from(
+        &mut self,
+        other: &Self,
+        rename_node: impl FnMut(NI, NI),
+        rename_edge: impl FnMut(EI, EI),
+    );
 
     /// Reindex the nodes and edges to be contiguous.
     ///
@@ -213,7 +219,12 @@ pub trait UnmanagedComponent<NI, EI>: Default {
     fn shrink_to(&mut self, nodes: usize, edges: usize);
 
     /// Insert the elements of another adjacency into this adjacency.
-    fn insert_from(&mut self, other: &Self, node_map: impl FnMut(NI) -> NI, edge_map: impl FnMut(EI) -> EI);
+    fn insert_from(
+        &mut self,
+        other: &Self,
+        node_map: impl FnMut(NI) -> NI,
+        edge_map: impl FnMut(EI) -> EI,
+    );
 
     /// Changes the key of a node.
     ///
@@ -227,13 +238,6 @@ pub trait UnmanagedComponent<NI, EI>: Default {
 
     // TODO: Capacity functions
 }
-
-
-
-
-
-
-
 
 // TODO: Remove this stub definitions once we have a good default allocator and weights
 
@@ -256,8 +260,10 @@ where
     }
 }
 
-impl<NI, EI> Allocator<NI, EI> for DefaultAllocator<NI,EI>
-where NI: EntityIndex, EI: EntityIndex
+impl<NI, EI> Allocator<NI, EI> for DefaultAllocator<NI, EI>
+where
+    NI: EntityIndex,
+    EI: EntityIndex,
 {
     type NodeIndices<'a> = slab::IndexIter<'a, NI, ()>
     where
@@ -302,7 +308,12 @@ where NI: EntityIndex, EI: EntityIndex
         self.edges.capacity()
     }
 
-    fn insert_from(&mut self, other: &Self, mut rename_node: impl FnMut(NI, NI), mut rename_edge: impl FnMut(EI, EI)) {
+    fn insert_from(
+        &mut self,
+        other: &Self,
+        mut rename_node: impl FnMut(NI, NI),
+        mut rename_edge: impl FnMut(EI, EI),
+    ) {
         for old in other.nodes.indices() {
             let new = self.new_node();
             rename_node(old, new);
@@ -313,7 +324,11 @@ where NI: EntityIndex, EI: EntityIndex
         }
     }
 
-    fn compact(&mut self, mut rename_node: impl FnMut(NI, NI), mut rename_edge: impl FnMut(EI, EI)) {
+    fn compact(
+        &mut self,
+        mut rename_node: impl FnMut(NI, NI),
+        mut rename_edge: impl FnMut(EI, EI),
+    ) {
         self.nodes.compact(|_, old, new| rename_node(old, new));
         self.edges.compact(|_, old, new| rename_edge(old, new));
     }
@@ -348,49 +363,62 @@ where NI: EntityIndex, EI: EntityIndex
     }
 }
 
-#[derive(Debug, Clone, Default)]
-pub struct DefaultWeights<N, E, P, NI, EI> (PhantomData<(N, E, P, NI, EI)>); // TODO: define a good default
+#[derive(Debug, Clone)]
+pub struct DefaultWeights<N, E, P, NI, EI> {
+    nodes: SecondaryMap<NI, N>,
+    edges: SecondaryMap<EI, E>,
+    phantom_data: PhantomData<P>,
+}
 
-impl<N,E,P, NI, EI> Weights<N,E,P,NI, EI> for DefaultWeights<N,E,P,NI,EI>
-where NI: EntityIndex, EI: EntityIndex
+impl<N, E, P, NI, EI> Default for DefaultWeights<N, E, P, NI, EI>
+where
+    NI: EntityIndex,
+    EI: EntityIndex,
+    N: Default,
+    E: Default,
 {
-    type NodeWeights<'a> = std::iter::Empty<(NI, &'a N)>
-    where
-        Self: 'a,
-        N: 'a;
+    fn default() -> Self {
+        Self {
+            nodes: SecondaryMap::new(),
+            edges: SecondaryMap::new(),
+            phantom_data: PhantomData,
+        }
+    }
+}
 
-    type EdgeWeights<'a> = std::iter::Empty<(EI, &'a E)>
-    where
-        Self: 'a,
-        E: 'a;
+impl<N, E, P, NI, EI> Weights<N, E, P, NI, EI> for DefaultWeights<N, E, P, NI, EI>
+where
+    NI: EntityIndex,
+    EI: EntityIndex,
+    N: Clone,
+    E: Clone,
+{
+    type NodeWeights<'a> = memory::map::Iter<'a, NI, N> where Self: 'a, N: 'a;
+    type EdgeWeights<'a> = memory::map::Iter<'a, EI, E> where Self: 'a, E: 'a;
+    type PortWeights<'a> = Empty<(usize, &'a P)> where Self: 'a, P: 'a;
 
-    type PortWeights<'a> = std::iter::Empty<(usize, &'a P)>
-    where
-        Self: 'a,
-        P: 'a;
-
-    fn node_weight(&self, _a: NI) -> Option<&N> {
-        None
+    fn node_weight(&self, a: NI) -> Option<&N> {
+        self.nodes.get(a)
     }
 
-    fn node_weight_mut(&mut self, _a: NI) -> Option<&mut N> {
-        None
+    fn node_weight_mut(&mut self, a: NI) -> Option<&mut N> {
+        self.nodes.get_mut(a)
     }
 
     fn node_weights<'a>(&'a self) -> Self::NodeWeights<'a> {
-        Empty::default()
+        self.nodes.iter()
     }
 
-    fn edge_weight(&self, _e: EI) -> Option<&E> {
-        None
+    fn edge_weight(&self, e: EI) -> Option<&E> {
+        self.edges.get(e)
     }
 
-    fn edge_weight_mut(&mut self, _e: EI) -> Option<&mut E> {
-        None
+    fn edge_weight_mut(&mut self, e: EI) -> Option<&mut E> {
+        self.edges.get_mut(e)
     }
 
     fn edge_weights<'a>(&'a self) -> Self::EdgeWeights<'a> {
-        Empty::default()
+        self.edges.iter()
     }
 
     fn port_weight(&self, _p: usize, _dir: Direction) -> Option<&P> {
@@ -402,42 +430,80 @@ where NI: EntityIndex, EI: EntityIndex
     }
 
     fn port_weights<'a>(&'a self, _dir: Direction) -> Self::PortWeights<'a> {
-        Empty::default()
+        Default::default()
     }
 }
 
-impl<N,E,P, NI, EI> UnmanagedComponent<NI,EI> for DefaultWeights<N,E,P,NI, EI>
-where NI: EntityIndex, EI: EntityIndex, N: Default, E: Default, P:Default
+impl<N, E, P, NI, EI> UnmanagedComponent<NI, EI> for DefaultWeights<N, E, P, NI, EI>
+where
+    NI: EntityIndex,
+    EI: EntityIndex,
+    N: Default,
+    E: Default,
+    P: Default,
+    N: Clone,
+    E: Clone,
 {
     fn new() -> Self {
-        Default::default()
+        Self {
+            nodes: Default::default(),
+            edges: Default::default(),
+            phantom_data: PhantomData,
+        }
     }
 
-    fn with_capacity(_nodes: usize, _edges: usize) -> Self {
-        Default::default()
+    fn with_capacity(nodes: usize, edges: usize) -> Self {
+        Self {
+            nodes: SecondaryMap::with_capacity(nodes),
+            edges: SecondaryMap::with_capacity(edges),
+            phantom_data: PhantomData,
+        }
     }
 
-    fn register_node(&mut self, _index: NI) {
+    fn register_node(&mut self, index: NI) {
+        if self.nodes.len() <= index.index() {
+            self.nodes.resize(index.index() + 1);
+        }
     }
 
-    fn register_edge(&mut self, _index: EI) {
+    fn register_edge(&mut self, index: EI) {
+        if self.edges.len() <= index.index() {
+            self.edges.resize(index.index() + 1);
+        }
     }
 
-    fn unregister_node(&mut self, _index: NI) {
+    fn unregister_node(&mut self, _index: NI) {}
+
+    fn unregister_edge(&mut self, _index: EI) {}
+
+    fn shrink_to(&mut self, nodes: usize, edges: usize) {
+        self.nodes.resize(nodes);
+        self.edges.resize(nodes);
     }
 
-    fn unregister_edge(&mut self, _index: EI) {
+    fn insert_from(
+        &mut self,
+        other: &Self,
+        mut node_map: impl FnMut(NI) -> NI,
+        mut edge_map: impl FnMut(EI) -> EI,
+    ) {
+        for (old, n) in other.nodes.iter() {
+            let new = node_map(old);
+            self.register_node(new);
+            self.nodes[new] = n.clone();
+        }
+        for (old, e) in other.edges.iter() {
+            let new = edge_map(old);
+            self.register_edge(new);
+            self.edges[new] = e.clone();
+        }
     }
 
-    fn shrink_to(&mut self, _nodes: usize, _edges: usize) {
+    fn rekey_node(&mut self, old: NI, new: NI) {
+        self.nodes.rekey(old, new);
     }
 
-    fn insert_from(&mut self, _other: &Self, _node_map: impl FnMut(NI) -> NI, _edge_map: impl FnMut(EI) -> EI) {
-    }
-
-    fn rekey_node(&mut self, _old: NI, _new: NI) {
-    }
-
-    fn rekey_edge(&mut self, _old: EI, _new: EI) {
+    fn rekey_edge(&mut self, old: EI, new: EI) {
+        self.edges.rekey(old, new);
     }
 }

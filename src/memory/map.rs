@@ -1,3 +1,4 @@
+use std::iter::Enumerate;
 use std::marker::PhantomData;
 use std::mem::replace;
 use std::ops::{Index, IndexMut};
@@ -100,19 +101,19 @@ impl<K: EntityIndex, V: Clone> SecondaryMap<K, V> {
     }
 
     #[inline]
-    pub fn iter(& self) -> impl Iterator<Item = (K, &V)> + '_ {
-        self.values
-            .iter()
-            .enumerate()
-            .map(|(i, value)| (EntityIndex::new(i), value))
+    pub fn iter(&self) -> Iter<'_, K, V> {
+        Iter {
+            iter: self.values.iter().enumerate(),
+            phantom_data: PhantomData,
+        }
     }
 
     #[inline]
-    pub fn iter_mut(&mut self) -> impl Iterator<Item = (K, &mut V)> + '_ {
-        self.values
-            .iter_mut()
-            .enumerate()
-            .map(|(i, value)| (EntityIndex::new(i), value))
+    pub fn iter_mut(&mut self) -> IterMut<'_, K, V> {
+        IterMut {
+            iter: self.values.iter_mut().enumerate(),
+            phantom_data: PhantomData,
+        }
     }
 
     #[cold]
@@ -147,5 +148,41 @@ impl<K: EntityIndex, V: Clone> IndexMut<K> for SecondaryMap<K, V> {
         } else {
             &mut self.values[index]
         }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct Iter<'a, K, V> {
+    iter: Enumerate<std::slice::Iter<'a, V>>,
+    phantom_data: PhantomData<K>,
+}
+
+impl<'a, K: EntityIndex, V> Iterator for Iter<'a, K, V> {
+    type Item = (K, &'a V);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.iter.next().map(|(i, value)| (K::new(i), value))
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.iter.size_hint()
+    }
+}
+
+#[derive(Debug)]
+pub struct IterMut<'a, K, V> {
+    iter: Enumerate<std::slice::IterMut<'a, V>>,
+    phantom_data: PhantomData<K>,
+}
+
+impl<'a, K: EntityIndex, V> Iterator for IterMut<'a, K, V> {
+    type Item = (K, &'a mut V);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.iter.next().map(|(i, value)| (K::new(i), value))
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.iter.size_hint()
     }
 }
