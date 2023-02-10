@@ -303,11 +303,11 @@ where NI: EntityIndex, EI: EntityIndex
     }
 
     fn insert_from(&mut self, other: &Self, mut rename_node: impl FnMut(NI, NI), mut rename_edge: impl FnMut(EI, EI)) {
-        for (old, _) in other.nodes.iter() {
+        for old in other.nodes.indices() {
             let new = self.new_node();
             rename_node(old, new);
         }
-        for (old, _) in other.edges.iter() {
+        for old in other.edges.indices() {
             let new = self.new_edge();
             rename_edge(old, new);
         }

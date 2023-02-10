@@ -1,5 +1,4 @@
 use std::{
-    cmp::Ordering,
     convert::Infallible,
     iter::FusedIterator,
     marker::PhantomData,
