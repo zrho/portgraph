@@ -8,6 +8,7 @@ pub mod hierarchy;
 pub mod secondary;
 pub mod substitute;
 pub mod toposort;
+pub mod transformers;
 pub mod unweighted;
 pub mod weights;
 

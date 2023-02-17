@@ -27,8 +27,9 @@ pub struct PortGraph<N = (), P = ()> {
     hierarchy: Hierarchy,
 }
 
-/// Main weighted graph interface, non-mutable operations.
-pub trait Graph<'a, N = (), P = ()>
+/// A base graph with adjacency, weights, and hierarchical structures.
+/// This trait is intended to be implemented by for concrete graph structures.
+pub trait GraphStructure<'a, N = (), P = ()>
 where
     N: 'a + Clone,
     P: 'a + Clone,
@@ -53,6 +54,368 @@ where
     #[must_use]
     fn hierarchy(&self) -> &Hierarchy;
 
+    /// Returns mutable references to the underlying components.
+    #[must_use]
+    fn components_mut<'b, 'u, 'w, 'h>(
+        &'b mut self,
+    ) -> (
+        &'u mut UnweightedGraph,
+        &'w mut Weights<N, P>,
+        &'h mut Hierarchy,
+    )
+    where
+        'b: 'u + 'w + 'h;
+
+    /// Returns a mutable reference to the underlying unweighted graph.
+    #[must_use]
+    fn unweighted_mut(&mut self) -> &mut UnweightedGraph {
+        self.components_mut().0
+    }
+
+    /// Returns a mutable reference to the weight component.
+    #[must_use]
+    fn weights_mut(&mut self) -> &mut Weights<N, P> {
+        self.components_mut().1
+    }
+
+    /// Returns a mutable reference to the hierarchy component.
+    #[must_use]
+    fn hierarchy_mut(&mut self) -> &mut Hierarchy {
+        self.components_mut().2
+    }
+
+    /// Get the weight of a given node.
+    #[inline(always)]
+    #[must_use]
+    fn node_weight_mut(&'a mut self, node: NodeIndex) -> Option<&'a mut N> {
+        self.weights_mut().try_get_node_mut(node)
+    }
+}
+
+/// Main weighted graph interface, non-mutable operations.
+pub trait Graph<'a, N = (), P = ()>
+where
+    N: 'a + Clone,
+    P: 'a + Clone,
+{
+    /// Returns the number of nodes in the graph.
+    #[must_use]
+    fn node_count(&self) -> usize;
+
+    /// Returns the number of ports in the graph.
+    #[must_use]
+    fn port_count(&self) -> usize;
+
+    /// Returns the number of edges in the graph, corresponding to the number of
+    /// links between ports.
+    #[must_use]
+    fn edge_count(&self) -> usize;
+
+    /// Check whether the graph has a node with a given index.
+    #[must_use]
+    fn contains_node(&self, node: NodeIndex) -> bool;
+
+    /// Check whether the graph has an edge with a given index.
+    #[must_use]
+    fn contains_port(&self, port: PortIndex) -> bool;
+
+    /// Whether the graph has neither nodes nor edges.
+    #[must_use]
+    fn is_empty(&self) -> bool;
+
+    /// Returns the number of ports for a given node and direction.
+    #[must_use]
+    fn node_port_count(&self, _node: NodeIndex, _direction: Direction) -> usize;
+
+    /// Iterate over all nodes in the graph.
+    #[must_use]
+    fn nodes_iter(&self) -> unweighted::Nodes;
+
+    /// Iterate over all nodes in the graph.
+    #[must_use]
+    fn ports_iter(&self) -> unweighted::Ports;
+
+    /// Get the port index of a given node, direction, and offset.
+    #[must_use]
+    fn port_index(&self, node: NodeIndex, offset: usize, direction: Direction)
+        -> Option<PortIndex>;
+
+    /// Get the port offset in the corresponding node.
+    #[must_use]
+    fn port_offset(&self, port: PortIndex) -> Option<usize>;
+
+    /// Get the input port index of a given node and offset.
+    #[must_use]
+    fn input(&self, node: NodeIndex, offset: usize) -> Option<PortIndex>;
+
+    /// Get the output port index of a given node and offset.
+    #[must_use]
+    fn output(&self, node: NodeIndex, offset: usize) -> Option<PortIndex>;
+
+    /// Iterate over all the ports of a given node.
+    #[must_use]
+    fn ports(&self, node: NodeIndex, direction: Direction) -> unweighted::NodePorts;
+
+    /// Iterator over the input ports of a given node.
+    #[must_use]
+    fn inputs(&self, node: NodeIndex) -> unweighted::NodePorts;
+
+    /// Iterator over the output ports of a given node.
+    #[must_use]
+    fn outputs(&self, node: NodeIndex) -> unweighted::NodePorts;
+
+    /// Slice of all the links of the `node` in the given `direction`. When the
+    /// corresponding node port is linked to another one, the Option contains
+    /// the index of the other port.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use portgraph::{PortGraph, GraphMut, Graph, Direction};
+    /// let mut graph = PortGraph::<(),()>::new();
+    ///
+    /// let node_a = graph.add_node((), 0, 2);
+    /// let node_b = graph.add_node((), 1, 0);
+    ///
+    /// let port_a = graph.output(node_a, 0).unwrap();
+    /// let port_b = graph.input(node_b, 0).unwrap();
+    ///
+    /// graph.link_ports(port_a, port_b).unwrap();
+    ///
+    /// assert_eq!(graph.links(node_a, Direction::Outgoing), &[Some(port_b), None]);
+    /// assert_eq!(graph.links(node_b, Direction::Incoming), &[Some(port_a)]);
+    /// ```
+    fn links(&self, node: NodeIndex, direction: Direction) -> &[Option<PortIndex>];
+
+    /// Slice of all the input links of the `node`. Shorthand for [`Graph::links`].
+    fn input_links(&self, node: NodeIndex) -> &[Option<PortIndex>];
+
+    /// Slice of all the output links of the `node`. Shorthand for [`Graph::links`].
+    fn output_links(&self, node: NodeIndex) -> &[Option<PortIndex>];
+
+    /// Iterate over all the edges connected to a given node.
+    fn neighbours(&self, _node: NodeIndex, _direction: Direction) -> std::iter::Empty<NodeIndex>;
+
+    /// Check whether two nodes are connected. Return the port indices of the first edge found.
+    #[must_use]
+    fn connected(&self, from: NodeIndex, to: NodeIndex) -> Option<(PortIndex, PortIndex)>;
+
+    /// Get the node of a given port.
+    #[must_use]
+    fn port_node(&self, port: PortIndex) -> Option<NodeIndex>;
+
+    /// Get the weight of a given node.
+    #[must_use]
+    fn node_weight(&'a self, node: NodeIndex) -> Option<&'a N>;
+
+    /// Iterate over the node weights of a graph.
+    fn node_weights(&'a self) -> iter::Empty<(NodeIndex, &'a N)>;
+
+    /// Get the weight of a given port.
+    #[must_use]
+    fn port_weight(&'a self, port: PortIndex) -> Option<&'a P>;
+
+    /// Iterate over the port weights of a graph.
+    fn port_weights(&'a self) -> iter::Empty<(PortIndex, &'a N)>;
+
+    /// Get the port linked to the given port. Returns `None` if the port is not linked.
+    #[must_use]
+    fn port_link(&self, port: PortIndex) -> Option<PortIndex>;
+
+    /// Whether the port is linked to the another port.
+    #[must_use]
+    fn is_linked(&self, port: PortIndex) -> bool;
+
+    /// Returns the number of children of a node in the hierarchy.
+    #[must_use]
+    fn node_child_count(&self, node: NodeIndex) -> usize;
+
+    /// Get the parent of a node in the hierarchy.
+    #[must_use]
+    fn node_parent(&self, node: NodeIndex) -> Option<NodeIndex>;
+
+    /// Get the first child of a node in the hierarchy.
+    #[must_use]
+    fn node_first_child(&self, node: NodeIndex) -> Option<NodeIndex>;
+
+    /// Get the last child of a node in the hierarchy.
+    #[must_use]
+    fn node_last_child(&self, node: NodeIndex) -> Option<NodeIndex>;
+
+    /// Iterate over the children of a node in the hierarchy.
+    #[must_use]
+    fn node_children(&self, node: NodeIndex) -> hierarchy::Children<'_>;
+
+    /// Get the next sibling of a node in the hierarchy.
+    #[must_use]
+    fn node_next_sibling(&self, node: NodeIndex) -> Option<NodeIndex>;
+
+    /// Get the previous sibling of a node in the hierarchy.
+    #[must_use]
+    fn node_prev_sibling(&self, node: NodeIndex) -> Option<NodeIndex>;
+}
+
+/// Main weighted graph interface, mutable operations.
+pub trait GraphMut<'a, N = (), P = ()>: Graph<'a, N, P>
+where
+    N: 'a + Clone,
+    P: 'a + Clone,
+{
+    /// Set the weight of a given node.
+    fn set_node_weight(&mut self, node: NodeIndex, weight: N);
+
+    /// Get the weight of a given port.
+    #[must_use]
+    fn port_weight_mut(&'a mut self, port: PortIndex) -> Option<&'a mut P>;
+
+    /// Set the weight of a given port.
+    fn set_port_weight(&mut self, port: PortIndex, weight: P);
+
+    /// Adds a node to the portgraph with a given number of input and output ports.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use portgraph::{PortGraph, GraphMut, Graph};
+    /// let mut g = PortGraph::<(),()>::new();
+    /// let node = g.add_node((), 4, 3);
+    /// assert_eq!(g.inputs(node).count(), 4);
+    /// assert_eq!(g.outputs(node).count(), 3);
+    /// assert!(g.contains_node(node));
+    /// ```
+    fn add_node(&mut self, weight: N, incoming: usize, outgoing: usize) -> NodeIndex;
+
+    /// Adds a node to the portgraph with a given number of input and output ports.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use portgraph::{PortGraph, GraphMut, Graph};
+    /// let mut g = PortGraph::<(),()>::new();
+    /// let node = g.add_node((), 4, 3);
+    /// assert_eq!(g.inputs(node).count(), 4);
+    /// assert_eq!(g.outputs(node).count(), 3);
+    /// assert!(g.contains_node(node));
+    /// ```
+    fn add_node_with_ports(
+        &mut self,
+        weight: N,
+        incoming_weights: Vec<P>,
+        outgoing_weights: Vec<P>,
+    ) -> NodeIndex;
+
+    /// Change the number of ports of a given node. If the number of ports is
+    /// increased, the port indices of the nodes will be invalidated.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use portgraph::{PortGraph, GraphMut, Graph};
+    /// let mut g = PortGraph::<(),()>::new();
+    /// let node = g.add_node((), 4, 3);
+    /// //g.resize_ports(node, 5, 2); # TODO: implement
+    /// //assert_eq!(g.inputs(node).count(), 5);
+    /// //assert_eq!(g.outputs(node).count(), 2);
+    /// ```
+    fn resize_ports(&mut self, _node: NodeIndex, _incoming: usize, _outgoing: usize);
+
+    /// Remove a node from the graph and return its weight.
+    fn remove_node(&mut self, node: NodeIndex) -> Option<N>;
+
+    /// Disconnect a port in the graph.
+    fn link_ports(&mut self, from: PortIndex, to: PortIndex) -> Result<(), LinkError>;
+
+    /// Link two nodes at an input and output port offset.
+    fn link_nodes(
+        &mut self,
+        from: NodeIndex,
+        from_offset: usize,
+        to: NodeIndex,
+        to_offset: usize,
+    ) -> Result<(PortIndex, PortIndex), LinkError>;
+
+    /// Unlinks the `port` and returns the port it was linked to. Returns `None`
+    /// when the port was not linked.
+    fn unlink_port(&mut self, port: PortIndex) -> Option<PortIndex>;
+
+    /// Insert another graph into this graph.
+    ///
+    /// Every time a node or port is inserted, the rekey function will be called with its old and new index.
+    fn insert_graph<G, FN, FP>(&mut self, other: G, rekey_nodes: FN, rekey_ports: FP)
+    where
+        G: Graph<'a, N, P> + Sized,
+        FN: FnMut(NodeIndex, NodeIndex),
+        FP: FnMut(PortIndex, PortIndex);
+
+    /// Compacts the storage of nodes in the graph so that all nodes are stored consecutively.
+    ///
+    /// Every time a node is moved, the `rekey` function will be called with its old and new index.
+    fn compact_nodes(&mut self, rekey: impl FnMut(NodeIndex, NodeIndex));
+
+    /// Compacts the storage of ports in the graph so that all ports are stored consecutively.
+    ///
+    /// Every time a port is moved, the `rekey` function will be called with its old and new index.
+    fn compact_ports(&mut self, rekey: impl FnMut(PortIndex, PortIndex));
+
+    /// Iterate over the node weights of a graph.
+    fn node_weights_mut(&'a mut self) -> iter::Empty<(NodeIndex, &'a mut N)>;
+
+    /// Iterate over the port weights of a graph.
+    fn port_weights_mut(&'a mut self) -> iter::Empty<(PortIndex, &'a mut N)>;
+}
+
+impl<'a, N, P> GraphStructure<'a, N, P> for PortGraph<N, P>
+where
+    N: 'a + Clone,
+    P: 'a + Clone,
+{
+    fn new() -> Self {
+        Self {
+            unweighted: UnweightedGraph::new(),
+            weights: Weights::new(),
+            hierarchy: Hierarchy::new(),
+        }
+    }
+
+    fn with_capacity(nodes: usize, ports: usize) -> Self {
+        Self {
+            unweighted: UnweightedGraph::with_capacity(nodes, ports),
+            weights: Weights::with_capacity(nodes, ports),
+            hierarchy: Hierarchy::new(),
+        }
+    }
+
+    fn unweighted(&self) -> &UnweightedGraph {
+        &self.unweighted
+    }
+
+    fn weights(&self) -> &Weights<N, P> {
+        &self.weights
+    }
+
+    fn hierarchy(&self) -> &Hierarchy {
+        &self.hierarchy
+    }
+
+    fn components_mut<'b, 'u, 'w, 'h>(
+        &'b mut self,
+    ) -> (
+        &'u mut UnweightedGraph,
+        &'w mut Weights<N, P>,
+        &'h mut Hierarchy,
+    )
+    where
+        'b: 'u + 'w + 'h,
+    {
+        (&mut self.unweighted, &mut self.weights, &mut self.hierarchy)
+    }
+}
+
+impl<'a, N, P> Graph<'a, N, P> for PortGraph<N, P>
+where
+    N: 'a + Clone,
+    P: 'a + Clone,
+{
     /// Returns the number of nodes in the graph.
     #[inline(always)]
     #[must_use]
@@ -322,49 +685,11 @@ where
     }
 }
 
-/// Main weighted graph interface, mutable operations.
-pub trait GraphMut<'a, N = (), P = ()>: Graph<'a, N, P>
+impl<'a, N, P> GraphMut<'a, N, P> for PortGraph<N, P>
 where
     N: 'a + Clone,
     P: 'a + Clone,
 {
-    /// Returns mutable references to the underlying components.
-    #[must_use]
-    fn components_mut<'b, 'u, 'w, 'h>(
-        &'b mut self,
-    ) -> (
-        &'u mut UnweightedGraph,
-        &'w mut Weights<N, P>,
-        &'h mut Hierarchy,
-    )
-    where
-        'b: 'u + 'w + 'h;
-
-    /// Returns a mutable reference to the underlying unweighted graph.
-    #[must_use]
-    fn unweighted_mut(&mut self) -> &mut UnweightedGraph {
-        self.components_mut().0
-    }
-
-    /// Returns a mutable reference to the weight component.
-    #[must_use]
-    fn weights_mut(&mut self) -> &mut Weights<N, P> {
-        self.components_mut().1
-    }
-
-    /// Returns a mutable reference to the hierarchy component.
-    #[must_use]
-    fn hierarchy_mut(&mut self) -> &mut Hierarchy {
-        self.components_mut().2
-    }
-
-    /// Get the weight of a given node.
-    #[inline(always)]
-    #[must_use]
-    fn node_weight_mut(&'a mut self, node: NodeIndex) -> Option<&'a mut N> {
-        self.weights_mut().try_get_node_mut(node)
-    }
-
     /// Set the weight of a given node.
     #[inline(always)]
     fn set_node_weight(&mut self, node: NodeIndex, weight: N) {
@@ -530,59 +855,6 @@ where
     /// Iterate over the port weights of a graph.
     fn port_weights_mut(&'a mut self) -> iter::Empty<(PortIndex, &'a mut N)> {
         todo!()
-    }
-}
-
-impl<'a, N, P> Graph<'a, N, P> for PortGraph<N, P>
-where
-    N: 'a + Clone,
-    P: 'a + Clone,
-{
-    fn new() -> Self {
-        Self {
-            unweighted: UnweightedGraph::new(),
-            weights: Weights::new(),
-            hierarchy: Hierarchy::new(),
-        }
-    }
-
-    fn with_capacity(nodes: usize, ports: usize) -> Self {
-        Self {
-            unweighted: UnweightedGraph::with_capacity(nodes, ports),
-            weights: Weights::with_capacity(nodes, ports),
-            hierarchy: Hierarchy::new(),
-        }
-    }
-
-    fn unweighted(&self) -> &UnweightedGraph {
-        &self.unweighted
-    }
-
-    fn weights(&self) -> &Weights<N, P> {
-        &self.weights
-    }
-
-    fn hierarchy(&self) -> &Hierarchy {
-        &self.hierarchy
-    }
-}
-
-impl<'a, N, P> GraphMut<'a, N, P> for PortGraph<N, P>
-where
-    N: 'a + Clone,
-    P: 'a + Clone,
-{
-    fn components_mut<'b, 'u, 'w, 'h>(
-        &'b mut self,
-    ) -> (
-        &'u mut UnweightedGraph,
-        &'w mut Weights<N, P>,
-        &'h mut Hierarchy,
-    )
-    where
-        'b: 'u + 'w + 'h,
-    {
-        (&mut self.unweighted, &mut self.weights, &mut self.hierarchy)
     }
 }
 
