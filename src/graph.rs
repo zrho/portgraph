@@ -364,6 +364,22 @@ where
     fn port_weights_mut(&'a mut self) -> iter::Empty<(PortIndex, &'a mut N)>;
 }
 
+impl<N, P> PortGraph<N, P>
+where
+    N: Clone,
+    P: Clone,
+{
+    pub fn map<M, Q>(&self, f: impl Fn(&N) -> M, g: impl Fn(&P) -> Q) -> PortGraph<M, Q>
+    where
+        M: Clone,
+        Q: Clone,
+    {
+        let mut g = PortGraph::with_capacity(self.node_count(), self.port_count());
+        todo!();
+        g
+    }
+}
+
 impl<'a, N, P> GraphStructure<'a, N, P> for PortGraph<N, P>
 where
     N: 'a + Clone,
