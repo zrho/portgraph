@@ -529,8 +529,6 @@ impl UnweightedGraph {
             let old_node = NodeIndex::new(old_index);
             let new_node = NodeIndex::new(new_index);
 
-            old_index += 1;
-
             let node_meta = match node_meta {
                 NodeEntry::Free(_) => {
                     old_index += 1;
@@ -548,7 +546,7 @@ impl UnweightedGraph {
                         PortEntry::Port(PortMeta::new(new_node, Direction::Incoming));
                 }
 
-                for port in port_list.index() + incoming..port_list.index() + outgoing {
+                for port in port_list.index() + incoming..port_list.index() + incoming + outgoing {
                     self.port_meta[port] =
                         PortEntry::Port(PortMeta::new(new_node, Direction::Outgoing));
                 }
@@ -556,6 +554,7 @@ impl UnweightedGraph {
 
             rekey(old_node, new_node);
 
+            old_index += 1;
             new_index += 1;
             true
         });
