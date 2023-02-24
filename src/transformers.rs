@@ -24,6 +24,7 @@ where
     FN: Fn(NodeIndex, N) -> NV,
     FN: Fn(PortIndex, P) -> PV,
 {
+    #[allow(dead_code)]
     pub fn new(graph: G, parent: NodeIndex, node_map: FN, port_map: FP) -> Self {
         Self {
             graph,

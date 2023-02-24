@@ -172,6 +172,7 @@ where
     ///
     /// ```
     /// # use portgraph::{PortGraph, GraphMut, Graph, Direction};
+    /// # use portgraph::graph::GraphStructure;
     /// let mut graph = PortGraph::<(),()>::new();
     ///
     /// let node_a = graph.add_node((), 0, 2);
@@ -277,6 +278,7 @@ where
     ///
     /// ```
     /// # use portgraph::{PortGraph, GraphMut, Graph};
+    /// # use portgraph::graph::GraphStructure;
     /// let mut g = PortGraph::<(),()>::new();
     /// let node = g.add_node((), 4, 3);
     /// assert_eq!(g.inputs(node).count(), 4);
@@ -291,6 +293,7 @@ where
     ///
     /// ```
     /// # use portgraph::{PortGraph, GraphMut, Graph};
+    /// # use portgraph::graph::GraphStructure;
     /// let mut g = PortGraph::<(),()>::new();
     /// let node = g.add_node((), 4, 3);
     /// assert_eq!(g.inputs(node).count(), 4);
@@ -311,6 +314,7 @@ where
     ///
     /// ```
     /// # use portgraph::{PortGraph, GraphMut, Graph};
+    /// # use portgraph::graph::GraphStructure;
     /// let mut g = PortGraph::<(),()>::new();
     /// let node = g.add_node((), 4, 3);
     /// //g.resize_ports(node, 5, 2); # TODO: implement
@@ -369,14 +373,14 @@ where
     N: Clone,
     P: Clone,
 {
-    pub fn map<M, Q>(&self, f: impl Fn(&N) -> M, g: impl Fn(&P) -> Q) -> PortGraph<M, Q>
+    pub fn map<M, Q>(&self, _f: impl Fn(&N) -> M, _g: impl Fn(&P) -> Q) -> PortGraph<M, Q>
     where
         M: Clone,
         Q: Clone,
     {
-        let mut g = PortGraph::with_capacity(self.node_count(), self.port_count());
+        let _g: PortGraph<M, Q> = PortGraph::with_capacity(self.node_count(), self.port_count());
         todo!();
-        g
+        //g
     }
 }
 
@@ -558,6 +562,7 @@ where
     ///
     /// ```
     /// # use portgraph::{PortGraph, GraphMut, Graph, Direction};
+    /// # use portgraph::graph::GraphStructure;
     /// let mut graph = PortGraph::<(),()>::new();
     ///
     /// let node_a = graph.add_node((), 0, 2);
@@ -731,6 +736,7 @@ where
     ///
     /// ```
     /// # use portgraph::{PortGraph, GraphMut, Graph};
+    /// # use portgraph::graph::GraphStructure;
     /// let mut g = PortGraph::<(),()>::new();
     /// let node = g.add_node((), 4, 3);
     /// assert_eq!(g.inputs(node).count(), 4);
@@ -749,6 +755,7 @@ where
     ///
     /// ```
     /// # use portgraph::{PortGraph, GraphMut, Graph};
+    /// # use portgraph::graph::GraphStructure;
     /// let mut g = PortGraph::<(),()>::new();
     /// let node = g.add_node((), 4, 3);
     /// assert_eq!(g.inputs(node).count(), 4);
@@ -778,6 +785,7 @@ where
     ///
     /// ```
     /// # use portgraph::{PortGraph, GraphMut, Graph};
+    /// # use portgraph::graph::GraphStructure;
     /// let mut g = PortGraph::<(),()>::new();
     /// let node = g.add_node((), 4, 3);
     /// //g.resize_ports(node, 5, 2); # TODO: implement

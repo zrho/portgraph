@@ -277,6 +277,7 @@ mod tests {
     use std::collections::{HashMap, HashSet};
     use std::error::Error;
 
+    use crate::graph::GraphStructure;
     use crate::substitute::{BoundedSubgraph, OpenGraph, Rewrite};
     use crate::{Graph, GraphMut, NodeIndex, PortGraph};
 
