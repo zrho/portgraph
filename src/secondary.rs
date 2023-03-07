@@ -4,6 +4,7 @@ use std::{
     ops::{Index, IndexMut},
 };
 
+/// A dense map from keys to values with default fallbacks.
 #[derive(Debug, Clone)]
 pub struct SecondaryMap<K, V> {
     data: Vec<V>,
@@ -24,10 +25,18 @@ where
     where
         V: Default,
     {
+        Self::with_default(Default::default())
+    }
+
+    /// Creates a new secondary map, specifying the default element.
+    ///
+    /// This does not allocate any memory until a value is modified.
+    #[inline]
+    pub fn with_default(default: V) -> Self {
         Self {
             data: Vec::new(),
             phantom: PhantomData,
-            default: V::default(),
+            default,
         }
     }
 
@@ -37,10 +46,16 @@ where
     where
         V: Default,
     {
+        Self::with_capacity_and_default(capacity, Default::default())
+    }
+
+    /// Creates a new secondary map with specified capacity and default element.
+    #[inline]
+    pub fn with_capacity_and_default(capacity: usize, default: V) -> Self {
         Self {
             data: Vec::with_capacity(capacity),
             phantom: PhantomData,
-            default: V::default(),
+            default,
         }
     }
 
@@ -70,7 +85,7 @@ where
 
     /// Mutably borrows the value at a `key`.
     ///
-    /// When the value is not present, the secondary map is resized to accomodate it.
+    /// When the value is not present, the secondary map is resized to accommodate it.
     /// To avoid frequent resizing, use [`SecondaryMap::ensure_capacity`] to keep the
     /// capacity of the secondary map in line with the size of the key space.
     #[inline]
